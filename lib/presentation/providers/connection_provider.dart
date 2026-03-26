@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/models.dart';
-import '../../domain/repositories/repositories.dart';
 import '../../infrastructure/network/connection_manager.dart';
 import '../../core/result.dart';
 

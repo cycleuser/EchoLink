@@ -1,6 +1,6 @@
 enum MessageType { text, image, file, system, location }
 
-enum MessageStatus { pending, sending, sent, delivered, read, failed }
+enum MessageStatus { pending, sending, sent, delivered, received, read, failed }
 
 class Message {
   final String id;

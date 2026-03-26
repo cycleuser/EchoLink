@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 import '../../domain/models/models.dart';
-import '../../domain/repositories/repositories.dart';
 import '../../core/result.dart';
 import '../../core/utils/logger.dart';
+import 'cross_platform_network_service.dart';
 
 abstract class ConnectionManager {
   Stream<Device> get discoveredDevices;
@@ -23,37 +23,29 @@ abstract class ConnectionManager {
 }
 
 class ConnectionManagerImpl implements ConnectionManager {
-  final _discoveredDevicesController = StreamController<Device>.broadcast();
-  final _connectionStateController = StreamController<ConnectionState>.broadcast();
-  final _incomingMessagesController = StreamController<Message>.broadcast();
-  final _fileTransfersController = StreamController<FileTransfer>.broadcast();
+  final CrossPlatformNetworkService _networkService;
 
-  Device? _currentDevice;
-  Device? _connectedDevice;
-  ConnectionState _currentState = ConnectionState.disconnected;
-  bool _isDiscovering = false;
+  ConnectionManagerImpl() : _networkService = CrossPlatformNetworkService();
 
   @override
-  Stream<Device> get discoveredDevices => _discoveredDevicesController.stream;
+  Stream<Device> get discoveredDevices => _networkService.deviceDiscovered;
 
   @override
-  Stream<ConnectionState> get connectionState => _connectionStateController.stream;
+  Stream<ConnectionState> get connectionState => _networkService.connectionState;
 
   @override
-  Stream<Message> get incomingMessages => _incomingMessagesController.stream;
+  Stream<Message> get incomingMessages => _networkService.messageReceived;
 
   @override
-  Stream<FileTransfer> get fileTransfers => _fileTransfersController.stream;
+  Stream<FileTransfer> get fileTransfers => Stream.empty();
 
   @override
   Future<Result<void>> initialize() async {
     try {
       AppLogger.info('Initializing connection manager');
       
-      _currentDevice = await _detectCurrentDevice();
-      
-      AppLogger.info('Current device: ${_currentDevice?.name}');
-      return const Success(null);
+      final deviceName = await _generateDeviceName();
+      return _networkService.initialize(deviceName);
     } catch (e) {
       AppLogger.error('Failed to initialize connection manager', e);
       return Failure(e.toString());
@@ -61,169 +53,73 @@ class ConnectionManagerImpl implements ConnectionManager {
   }
 
   @override
-  Future<Result<void>> startDiscovery() async {
-    if (_isDiscovering) {
-      return const Success(null);
-    }
-
-    try {
-      AppLogger.info('Starting device discovery');
-      _isDiscovering = true;
-      _updateState(ConnectionState.discovering);
-      
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to start discovery', e);
-      return Failure(e.toString());
-    }
-  }
+  Future<Result<void>> startDiscovery() => _networkService.startDiscovery();
 
   @override
-  Future<Result<void>> stopDiscovery() async {
-    if (!_isDiscovering) {
-      return const Success(null);
-    }
-
-    try {
-      AppLogger.info('Stopping device discovery');
-      _isDiscovering = false;
-      
-      if (_currentState == ConnectionState.discovering) {
-        _updateState(ConnectionState.disconnected);
-      }
-      
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to stop discovery', e);
-      return Failure(e.toString());
-    }
-  }
+  Future<Result<void>> stopDiscovery() => _networkService.stopDiscovery();
 
   @override
-  Future<Result<void>> connect(Device device) async {
-    try {
-      AppLogger.info('Connecting to device: ${device.name}');
-      _updateState(ConnectionState.connecting);
-
-      await Future.delayed(const Duration(seconds: 2));
-
-      _connectedDevice = device.copyWith(status: DeviceStatus.connected);
-      _updateState(ConnectionState.connected);
-
-      AppLogger.info('Connected to: ${device.name}');
-      return const Success(null);
-    } on TimeoutException {
-      _updateState(ConnectionState.error);
-      return Failure('Connection timeout');
-    } catch (e) {
-      AppLogger.error('Failed to connect', e);
-      _updateState(ConnectionState.error);
-      return Failure(e.toString());
-    }
-  }
+  Future<Result<void>> connect(Device device) => _networkService.connect(device);
 
   @override
-  Future<Result<void>> disconnect() async {
-    try {
-      AppLogger.info('Disconnecting from device');
-      
-      _connectedDevice = null;
-      _updateState(ConnectionState.disconnected);
-      
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to disconnect', e);
-      return Failure(e.toString());
-    }
-  }
+  Future<Result<void>> disconnect() => _networkService.disconnect();
 
   @override
   Future<Result<void>> sendMessage(Message message) async {
-    if (_connectedDevice == null) {
-      return Failure('No device connected');
-    }
-
-    try {
-      AppLogger.debug('Sending message: ${message.id}');
-      
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to send message', e);
-      return Failure(e.toString());
-    }
+    return _networkService.sendMessage(message.content);
   }
 
   @override
   Future<Result<void>> sendFile(FileTransfer transfer) async {
-    if (_connectedDevice == null) {
-      return Failure('No device connected');
-    }
-
-    try {
-      AppLogger.debug('Sending file: ${transfer.fileName}');
-      
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to send file', e);
-      return Failure(e.toString());
-    }
+    return Failure('File transfer not implemented yet');
   }
 
   @override
   Future<Device> getCurrentDevice() async {
-    if (_currentDevice == null) {
-      _currentDevice = await _detectCurrentDevice();
-    }
-    return _currentDevice!;
+    return _networkService.getCurrentDevice();
   }
 
   @override
   Future<void> dispose() async {
-    await _discoveredDevicesController.close();
-    await _connectionStateController.close();
-    await _incomingMessagesController.close();
-    await _fileTransfersController.close();
+    await _networkService.dispose();
   }
 
-  void _updateState(ConnectionState newState) {
-    _currentState = newState;
-    _connectionStateController.add(newState);
-  }
-
-  Future<Device> _detectCurrentDevice() async {
-    String deviceName = 'EchoLink Device';
+  Future<String> _generateDeviceName() async {
+    String platform = 'Device';
     
-    if (Platform.isAndroid) {
-      deviceName = 'Android Device';
-    } else if (Platform.isIOS) {
-      deviceName = 'iOS Device';
+    if (await _isAndroid()) {
+      platform = 'Android';
+    } else if (await _isIOS()) {
+      platform = 'iOS';
+    } else if (await _isMacOS()) {
+      platform = 'macOS';
     }
 
-    return Device(
-      id: _generateDeviceId(),
-      name: deviceName,
-      platform: Platform.isAndroid
-          ? DevicePlatform.android
-          : Platform.isIOS
-              ? DevicePlatform.ios
-              : DevicePlatform.unknown,
-      status: DeviceStatus.connected,
-    );
+    final suffix = DateTime.now().millisecondsSinceEpoch % 10000;
+    return 'EchoLink-$platform-$suffix';
   }
 
-  String _generateDeviceId() {
-    return DateTime.now().millisecondsSinceEpoch.toString();
+  Future<bool> _isAndroid() async {
+    try {
+      return Platform.isAndroid;
+    } catch (_) {
+      return false;
+    }
   }
 
-  void _onDeviceDiscovered(Device device) {
-    _discoveredDevicesController.add(device);
+  Future<bool> _isIOS() async {
+    try {
+      return Platform.isIOS;
+    } catch (_) {
+      return false;
+    }
   }
 
-  void _onMessageReceived(Message message) {
-    _incomingMessagesController.add(message);
-  }
-
-  void _onFileTransferUpdate(FileTransfer transfer) {
-    _fileTransfersController.add(transfer);
+  Future<bool> _isMacOS() async {
+    try {
+      return Platform.isMacOS;
+    } catch (_) {
+      return false;
+    }
   }
 }

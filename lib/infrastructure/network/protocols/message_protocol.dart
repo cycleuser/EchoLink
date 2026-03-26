@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import '../../domain/models/message.dart';
-import '../../core/utils/logger.dart';
+import '../../../domain/models/models.dart';
+import '../../../core/utils/logger.dart';
 
 class MessageProtocol {
   static const int version = 1;

@@ -16,6 +16,7 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   int _currentIndex = 0;
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -24,11 +25,21 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _initializeApp() async {
-    await ref.read(connectionStateProvider.notifier).initialize();
+    final result = await ref.read(connectionStateProvider.notifier).initialize();
+    
+    if (mounted) {
+      setState(() {
+        _isInitialized = result.isSuccess;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return _buildLoadingScreen();
+    }
+
     final connectionState = ref.watch(connectionStateProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider);
 
@@ -71,6 +82,24 @@ class _HomePageState extends ConsumerState<HomePage> {
             label: 'Settings',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingScreen() {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 24),
+            Text(
+              'Initializing EchoLink...',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -144,30 +173,78 @@ class _HomePageState extends ConsumerState<HomePage> {
                     color: Theme.of(context).colorScheme.outline,
                   ),
             ),
+            const SizedBox(height: 24),
+            _buildPlatformInfo(),
           ],
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: devices.length,
-      itemBuilder: (context, index) {
-        final device = devices[index];
-        return DeviceCard(
-          device: device,
-          onTap: () => _connectToDevice(device),
-        );
-      },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const Icon(Icons.devices, size: 20),
+              const SizedBox(width: 8),
+              Text('Found ${devices.length} device(s)'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: devices.length,
+            itemBuilder: (context, index) {
+              final device = devices[index];
+              return DeviceCard(
+                device: device,
+                onTap: () => _connectToDevice(device),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlatformInfo() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              const Icon(Icons.info_outline, size: 32),
+              const SizedBox(height: 12),
+              Text(
+                'Cross-Platform Support',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'EchoLink works across macOS, Android, and iOS.\n'
+                'All devices on the same Wi-Fi network can discover and connect to each other.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   Future<void> _startDiscovery() async {
     await ref.read(connectionStateProvider.notifier).startDiscovery();
     
-    await Future.delayed(const Duration(seconds: 5));
+    await Future.delayed(const Duration(seconds: 10));
     
-    await ref.read(connectionStateProvider.notifier).stopDiscovery();
+    if (mounted) {
+      await ref.read(connectionStateProvider.notifier).stopDiscovery();
+    }
   }
 
   Future<void> _connectToDevice(Device device) async {

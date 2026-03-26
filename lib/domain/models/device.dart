@@ -4,6 +4,8 @@ enum ConnectionType { wifiDirect, multipeer, hotspot, wifiAware }
 
 enum DeviceStatus { disconnected, discovering, connecting, connected }
 
+enum ConnectionState { disconnected, discovering, connecting, connected, error }
+
 class Device {
   final String id;
   final String name;
