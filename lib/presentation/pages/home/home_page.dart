@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
-import '../../../core/utils/logger.dart';
 import '../chat/chat_page.dart';
 import '../transfer/transfer_page.dart';
 import '../settings/settings_page.dart';
 import '../../widgets/device_card.dart';
-import '../../widgets/connection_status.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -19,6 +17,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   int _currentIndex = 0;
   bool _isInitialized = false;
+  String _initError = '';
 
   @override
   void initState() {
@@ -27,16 +26,33 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _initializeApp() async {
-    final result = await ref.read(connectionStateProvider.notifier).initialize();
-    
-    if (mounted) {
-      setState(() {
-        _isInitialized = result.isSuccess;
-      });
+    try {
+      final result = await ref.read(connectionStateProvider.notifier).initialize();
       
-      // Auto-start discovery after initialization
-      if (_isInitialized) {
-        _startDiscovery();
+      if (mounted) {
+        setState(() {
+          _isInitialized = result.isSuccess;
+          if (!result.isSuccess) {
+            result.when(
+              success: (_) {},
+              failure: (message, {exception}) {
+                _initError = message;
+              },
+            );
+          }
+        });
+        
+        if (_isInitialized) {
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) _startDiscovery();
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _initError = e.toString();
+        });
       }
     }
   }
@@ -49,8 +65,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     final connectionState = ref.watch(connectionStateProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider);
+    final currentDevice = ref.watch(currentDeviceProvider);
 
-    // Auto-connect to first discovered device
     if (discoveredDevices.isNotEmpty && connectionState == EchoLinkConnectionState.disconnected) {
       final autoConnectEnabled = ref.read(autoConnectEnabledProvider);
       if (autoConnectEnabled) {
@@ -62,7 +78,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          _buildHomeContent(connectionState, discoveredDevices),
+          _buildDevicesPage(connectionState, discoveredDevices, currentDevice),
           const ChatPage(),
           const TransferPage(),
           const SettingsPage(),
@@ -70,11 +86,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.devices_outlined),
@@ -104,53 +116,231 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _buildLoadingScreen() {
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            Text(
-              'Initializing EchoLink...',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 24),
+              Text(
+                'EchoLink',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Initializing network...',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+              if (_initError.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _initError,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _initializeApp,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHomeContent(
+  Widget _buildDevicesPage(
     EchoLinkConnectionState connectionState,
     List<Device> discoveredDevices,
+    Device? currentDevice,
   ) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('EchoLink'),
         actions: [
-          Switch(
-            value: ref.watch(autoConnectEnabledProvider),
-            onChanged: (value) {
-              ref.read(autoConnectEnabledProvider.notifier).state = value;
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _startDiscovery,
+            tooltip: 'Refresh',
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'settings') {
+                setState(() => _currentIndex = 3);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'settings',
+                child: ListTile(
+                  leading: Icon(Icons.settings),
+                  title: Text('Settings'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
       body: Column(
         children: [
-          ConnectionStatusWidget(state: connectionState),
+          _buildCurrentDeviceCard(currentDevice, connectionState),
+          _buildConnectionBanner(connectionState),
           Expanded(
             child: _buildDeviceList(discoveredDevices, connectionState),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _startDiscovery,
-        icon: const Icon(Icons.search),
-        label: const Text('Discover Devices'),
+      floatingActionButton: connectionState != EchoLinkConnectionState.discovering
+          ? FloatingActionButton.extended(
+              onPressed: _startDiscovery,
+              icon: const Icon(Icons.search),
+              label: const Text('Discover'),
+            )
+          : FloatingActionButton.extended(
+              onPressed: () => ref.read(connectionStateProvider.notifier).stopDiscovery(),
+              icon: const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              label: const Text('Scanning...'),
+            ),
+    );
+  }
+
+  Widget _buildCurrentDeviceCard(Device? device, EchoLinkConnectionState connectionState) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _getPlatformIcon(device?.platform),
+                  size: 28,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'This Device',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      device?.name ?? 'Unknown',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      device != null ? '${device.ipAddress}:${device.port}' : 'Not connected',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(connectionState).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(connectionState),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _getStatusText(connectionState),
+                      style: TextStyle(
+                        color: _getStatusColor(connectionState),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConnectionBanner(EchoLinkConnectionState connectionState) {
+    if (connectionState != EchoLinkConnectionState.connected) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link, color: Colors.green, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Connected - Go to Chat tab to send messages',
+              style: TextStyle(color: Colors.green[700]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -159,58 +349,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     List<Device> devices,
     EchoLinkConnectionState connectionState,
   ) {
-    if (connectionState == EchoLinkConnectionState.discovering) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Searching for nearby devices...'),
-          ],
-        ),
-      );
+    if (connectionState == EchoLinkConnectionState.discovering && devices.isEmpty) {
+      return _buildScanningView();
     }
 
     if (devices.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.devices_other,
-              size: 64,
-              color: Theme.of(context).colorScheme.outline,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No devices found',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap "Discover Devices" to search',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-            ),
-            const SizedBox(height: 24),
-            _buildPlatformInfo(),
-          ],
-        ),
-      );
+      return _buildEmptyView();
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Icon(Icons.devices, size: 20),
-              const SizedBox(width: 8),
-              Text('Found ${devices.length} device(s)'),
-            ],
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Text(
+            'Nearby Devices (${devices.length})',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
           ),
         ),
         Expanded(
@@ -219,9 +375,12 @@ class _HomePageState extends ConsumerState<HomePage> {
             itemCount: devices.length,
             itemBuilder: (context, index) {
               final device = devices[index];
-              return DeviceCard(
-                device: device,
-                onTap: () => _connectToDevice(device),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: DeviceCard(
+                  device: device,
+                  onTap: () => _connectToDevice(device),
+                ),
               );
             },
           ),
@@ -230,29 +389,68 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildPlatformInfo() {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const Icon(Icons.info_outline, size: 32),
-              const SizedBox(height: 12),
-              Text(
-                'Cross-Platform Support',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'EchoLink works across macOS, Android, and iOS.\n'
-                'All devices on the same network can discover and connect.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+  Widget _buildScanningView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 24),
+          Text(
+            'Scanning for devices...',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Make sure other devices are running EchoLink',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.devices_other,
+                size: 48,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'No devices found',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Make sure both devices are on the same WiFi network\nand running EchoLink',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _startDiscovery,
+              icon: const Icon(Icons.search),
+              label: const Text('Scan Again'),
+            ),
+          ],
         ),
       ),
     );
@@ -260,16 +458,13 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _startDiscovery() async {
     await ref.read(connectionStateProvider.notifier).startDiscovery();
-    
-    await Future.delayed(const Duration(seconds: 10));
-    
+    await Future.delayed(const Duration(seconds: 15));
     if (mounted) {
       await ref.read(connectionStateProvider.notifier).stopDiscovery();
     }
   }
 
   Future<void> _autoConnect(Device device) async {
-    AppLogger.info('Auto-connecting to ${device.name}');
     await _connectToDevice(device);
   }
 
@@ -278,23 +473,127 @@ class _HomePageState extends ConsumerState<HomePage> {
     
     if (!mounted) return;
     
+    String message = '';
+    NotificationType type = NotificationType.success;
+    
     result.when(
       success: (_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Connected to ${device.name}'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
+        message = 'Connected to ${device.name}';
+        type = NotificationType.success;
       },
-      failure: (message, {exception}) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to connect: $message'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+      failure: (msg, {exception}) {
+        message = 'Failed to connect: $msg';
+        type = NotificationType.error;
       },
     );
+    
+    _showTopNotification(context, message, type);
+  }
+
+  void _showTopNotification(BuildContext context, String message, NotificationType type) {
+    final overlay = Overlay.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    Color bgColor;
+    Color fgColor;
+    IconData icon;
+    
+    switch (type) {
+      case NotificationType.success:
+        bgColor = Colors.green;
+        fgColor = Colors.white;
+        icon = Icons.check_circle;
+        break;
+      case NotificationType.error:
+        bgColor = colorScheme.error;
+        fgColor = colorScheme.onError;
+        icon = Icons.error;
+        break;
+    }
+
+    final entry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: MediaQuery.of(context).padding.top + 8,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: fgColor, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: TextStyle(color: fgColor),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), entry.remove);
+  }
+
+  String _getStatusText(EchoLinkConnectionState state) {
+    switch (state) {
+      case EchoLinkConnectionState.connected:
+        return 'Connected';
+      case EchoLinkConnectionState.connecting:
+        return 'Connecting';
+      case EchoLinkConnectionState.discovering:
+        return 'Scanning';
+      case EchoLinkConnectionState.disconnected:
+        return 'Offline';
+      case EchoLinkConnectionState.error:
+        return 'Error';
+    }
+  }
+
+  Color _getStatusColor(EchoLinkConnectionState state) {
+    switch (state) {
+      case EchoLinkConnectionState.connected:
+        return Colors.green;
+      case EchoLinkConnectionState.connecting:
+      case EchoLinkConnectionState.discovering:
+        return Colors.orange;
+      case EchoLinkConnectionState.disconnected:
+        return Theme.of(context).colorScheme.outline;
+      case EchoLinkConnectionState.error:
+        return Theme.of(context).colorScheme.error;
+    }
+  }
+
+  IconData _getPlatformIcon(DevicePlatform? platform) {
+    switch (platform) {
+      case DevicePlatform.android:
+        return Icons.phone_android;
+      case DevicePlatform.ios:
+        return Icons.phone_iphone;
+      case DevicePlatform.macos:
+        return Icons.computer;
+      default:
+        return Icons.devices;
+    }
   }
 }
+
+enum NotificationType { success, error }

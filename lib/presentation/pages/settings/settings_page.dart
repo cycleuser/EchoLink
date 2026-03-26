@@ -12,9 +12,8 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   final _deviceNameController = TextEditingController();
-  bool _notificationsEnabled = true;
   bool _autoDiscovery = true;
-  String _themeMode = 'system';
+  bool _notificationsEnabled = true;
 
   @override
   void initState() {
@@ -28,13 +27,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.dispose();
   }
 
-  Future<void> _loadSettings() async {
-    _deviceNameController.text = 'EchoLink Device';
+  void _loadSettings() {
+    final device = ref.read(currentDeviceProvider);
+    _deviceNameController.text = device?.name ?? 'EchoLink Device';
   }
 
   @override
   Widget build(BuildContext context) {
     final currentDevice = ref.watch(currentDeviceProvider);
+    final themeMode = ref.watch(themeModeProvider);
+    final autoConnectEnabled = ref.watch(autoConnectEnabledProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -42,183 +44,258 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ),
       body: ListView(
         children: [
-          _buildProfileSection(currentDevice),
-          const Divider(),
-          _buildNetworkSection(),
-          const Divider(),
-          _buildAppearanceSection(),
-          const Divider(),
+          _buildDeviceSection(currentDevice),
+          const SizedBox(height: 8),
+          _buildNetworkSection(autoConnectEnabled),
+          const SizedBox(height: 8),
+          _buildAppearanceSection(themeMode),
+          const SizedBox(height: 8),
           _buildAboutSection(),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  Widget _buildProfileSection(currentDevice) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Device',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
+  Widget _buildDeviceSection(Device? device) {
+    return _buildSection(
+      title: 'This Device',
+      icon: Icons.devices,
+      children: [
+        ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              _getPlatformIcon(device?.platform),
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          ),
+          title: Text(device?.name ?? 'Unknown'),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_getPlatformName(device?.platform)),
+              if (device != null)
+                Text(
+                  '${device.ipAddress}:${device.port}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
                 ),
+            ],
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _deviceNameController,
-            decoration: const InputDecoration(
-              labelText: 'Device Name',
-              prefixIcon: Icon(Icons.devices),
-            ),
-            onSubmitted: (_) => _saveDeviceName(),
-          ),
-          const SizedBox(height: 16),
-          ListTile(
-            leading: const CircleAvatar(
-              child: Icon(Icons.person),
-            ),
-            title: Text(currentDevice?.name ?? 'Unknown'),
-            subtitle: Text(
-              currentDevice?.platform == DevicePlatform.android
-                  ? 'Android Device'
-                  : currentDevice?.platform == DevicePlatform.ios
-                      ? 'iOS Device'
-                      : 'Unknown Platform',
-            ),
-          ),
-        ],
-      ),
+          isThreeLine: device != null,
+        ),
+      ],
     );
   }
 
-  Widget _buildNetworkSection() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Network',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-          ),
-          SwitchListTile(
-            title: const Text('Auto Discovery'),
-            subtitle: const Text('Automatically discover nearby devices'),
-            value: _autoDiscovery,
-            onChanged: (value) {
-              setState(() {
-                _autoDiscovery = value;
-              });
-            },
-          ),
-          SwitchListTile(
-            title: const Text('Notifications'),
-            subtitle: const Text('Show notifications for new messages'),
-            value: _notificationsEnabled,
-            onChanged: (value) {
-              setState(() {
-                _notificationsEnabled = value;
-              });
-            },
-          ),
-        ],
-      ),
+  Widget _buildNetworkSection(bool autoConnectEnabled) {
+    return _buildSection(
+      title: 'Network',
+      icon: Icons.wifi,
+      children: [
+        SwitchListTile(
+          title: const Text('Auto Discovery'),
+          subtitle: const Text('Automatically scan for nearby devices on startup'),
+          value: _autoDiscovery,
+          onChanged: (value) => setState(() => _autoDiscovery = value),
+        ),
+        SwitchListTile(
+          title: const Text('Auto Connect'),
+          subtitle: const Text('Connect to the first discovered device automatically'),
+          value: autoConnectEnabled,
+          onChanged: (value) {
+            ref.read(autoConnectEnabledProvider.notifier).state = value;
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Notifications'),
+          subtitle: const Text('Show alerts for new messages'),
+          value: _notificationsEnabled,
+          onChanged: (value) => setState(() => _notificationsEnabled = value),
+        ),
+      ],
     );
   }
 
-  Widget _buildAppearanceSection() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Appearance',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-          ),
-          RadioListTile<String>(
-            title: const Text('System Default'),
-            value: 'system',
-            groupValue: _themeMode,
-            onChanged: (value) {
-              setState(() {
-                _themeMode = value!;
-              });
-            },
-          ),
-          RadioListTile<String>(
-            title: const Text('Light'),
-            value: 'light',
-            groupValue: _themeMode,
-            onChanged: (value) {
-              setState(() {
-                _themeMode = value!;
-              });
-            },
-          ),
-          RadioListTile<String>(
-            title: const Text('Dark'),
-            value: 'dark',
-            groupValue: _themeMode,
-            onChanged: (value) {
-              setState(() {
-                _themeMode = value!;
-              });
-            },
-          ),
-        ],
-      ),
+  Widget _buildAppearanceSection(ThemeMode themeMode) {
+    return _buildSection(
+      title: 'Appearance',
+      icon: Icons.palette,
+      children: [
+        SegmentedButton<ThemeMode>(
+          segments: const [
+            ButtonSegment(
+              value: ThemeMode.system,
+              label: Text('System'),
+              icon: Icon(Icons.settings_suggest),
+            ),
+            ButtonSegment(
+              value: ThemeMode.light,
+              label: Text('Light'),
+              icon: Icon(Icons.light_mode),
+            ),
+            ButtonSegment(
+              value: ThemeMode.dark,
+              label: Text('Dark'),
+              icon: Icon(Icons.dark_mode),
+            ),
+          ],
+          selected: {themeMode},
+          onSelectionChanged: (Set<ThemeMode> selection) {
+            ref.read(themeModeProvider.notifier).setThemeMode(selection.first);
+          },
+        ),
+      ],
     );
   }
 
   Widget _buildAboutSection() {
+    return _buildSection(
+      title: 'About',
+      icon: Icons.info_outline,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('Version'),
+          subtitle: const Text('1.0.0'),
+          trailing: Text(
+            'Build ${DateTime.now().year}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.code),
+          title: const Text('Open Source'),
+          subtitle: const Text('GPLv3 License'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _showLicenseDialog(),
+        ),
+        ListTile(
+          leading: const Icon(Icons.privacy_tip_outlined),
+          title: const Text('Privacy Policy'),
+          subtitle: const Text('No data collected'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _showPrivacyDialog(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSection({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'About',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          Padding(
+            padding: const EdgeInsets.only(left: 8, top: 16, bottom: 8),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
                   color: Theme.of(context).colorScheme.primary,
                 ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Version'),
-            subtitle: const Text('1.0.0'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.code),
-            title: const Text('Open Source'),
-            subtitle: const Text('GPLv3 License'),
-            trailing: const Icon(Icons.open_in_new),
-            onTap: () {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('Privacy Policy'),
-            trailing: const Icon(Icons.open_in_new),
-            onTap: () {},
+          Card(
+            margin: EdgeInsets.zero,
+            child: Column(children: children),
           ),
         ],
       ),
     );
   }
 
-  void _saveDeviceName() {
-    final name = _deviceNameController.text.trim();
-    if (name.isEmpty) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Device name saved')),
+  void _showLicenseDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Open Source License'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'EchoLink is open source software released under the GNU General Public License v3.0.\n\n'
+            'You are free to use, modify, and distribute this software under the terms of the GPL v3 license.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
+  }
+
+  void _showPrivacyDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Privacy Policy'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'EchoLink Privacy Policy\n\n'
+            '• No data is collected or transmitted to external servers\n'
+            '• All communication happens directly between your devices\n'
+            '• Your messages and files stay on your local network\n'
+            '• No analytics, tracking, or advertising\n\n'
+            'Your privacy is our priority.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getPlatformIcon(DevicePlatform? platform) {
+    switch (platform) {
+      case DevicePlatform.android:
+        return Icons.phone_android;
+      case DevicePlatform.ios:
+        return Icons.phone_iphone;
+      case DevicePlatform.macos:
+        return Icons.computer;
+      default:
+        return Icons.devices;
+    }
+  }
+
+  String _getPlatformName(DevicePlatform? platform) {
+    switch (platform) {
+      case DevicePlatform.android:
+        return 'Android';
+      case DevicePlatform.ios:
+        return 'iOS';
+      case DevicePlatform.macos:
+        return 'macOS';
+      default:
+        return 'Unknown Platform';
+    }
   }
 }

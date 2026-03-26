@@ -45,14 +45,42 @@ class ChatNotifier extends StateNotifier<ChatState> {
       return Failure('Message cannot be empty');
     }
 
+    final message = Message(
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      senderId: _networkService.getCurrentDevice().id,
+      senderName: _networkService.getCurrentDevice().name,
+      content: content,
+      timestamp: DateTime.now(),
+      status: MessageStatus.sending,
+    );
+
+    state = state.copyWith(
+      messages: [...state.messages, message],
+    );
+
     final result = await _networkService.sendMessage(content);
 
     result.when(
       success: (_) {
-        // Message sent successfully - the network service handles the stream
+        final updatedMessages = state.messages.map((m) {
+          if (m.id == message.id) {
+            return m.copyWith(status: MessageStatus.sent);
+          }
+          return m;
+        }).toList();
+        state = state.copyWith(messages: updatedMessages);
       },
       failure: (msg, {exception}) {
-        state = state.copyWith(error: msg);
+        final updatedMessages = state.messages.map((m) {
+          if (m.id == message.id) {
+            return m.copyWith(status: MessageStatus.failed);
+          }
+          return m;
+        }).toList();
+        state = state.copyWith(
+          messages: updatedMessages,
+          error: msg,
+        );
       },
     );
 
@@ -79,30 +107,15 @@ class ChatNotifier extends StateNotifier<ChatState> {
     state = const ChatState();
   }
 
-  void addTestMessage(String content, {bool isMe = true}) {
-    final message = Message(
-      id: 'test_${DateTime.now().millisecondsSinceEpoch}',
-      senderId: isMe ? 'me' : 'other',
-      senderName: isMe ? 'Me' : 'Other',
-      content: content,
-      timestamp: DateTime.now(),
-      status: isMe ? MessageStatus.sent : MessageStatus.received,
-    );
-    state = state.copyWith(
-      messages: [...state.messages, message],
-    );
+  void clearError() {
+    state = state.copyWith(error: null);
   }
 }
 
 final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
-  final connectionManager = ref.watch(connectionManagerProvider) as ConnectionManagerImpl;
   return ChatNotifier(CrossPlatformNetworkService());
 });
 
 final connectedDeviceProvider = StateProvider<Device?>((ref) {
-  final connectionState = ref.watch(connectionStateProvider);
-  if (connectionState == EchoLinkConnectionState.connected) {
-    return CrossPlatformNetworkService().currentConnectedDevice;
-  }
-  return null;
+  return CrossPlatformNetworkService().currentConnectedDevice;
 });

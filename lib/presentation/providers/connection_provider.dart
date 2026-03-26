@@ -64,7 +64,15 @@ class DiscoveredDevicesNotifier extends StateNotifier<List<Device>> {
 class CurrentDeviceNotifier extends StateNotifier<Device?> {
   final ConnectionManager _connectionManager;
 
-  CurrentDeviceNotifier(this._connectionManager) : super(null);
+  CurrentDeviceNotifier(this._connectionManager) : super(null) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    final device = await _connectionManager.getCurrentDevice();
+    state = device;
+  }
 
   Future<void> load() async {
     final device = await _connectionManager.getCurrentDevice();
@@ -89,3 +97,7 @@ final currentDeviceProvider = StateNotifierProvider<CurrentDeviceNotifier, Devic
 });
 
 final autoConnectEnabledProvider = StateProvider<bool>((ref) => true);
+
+final debugLogProvider = Provider<Stream<String>>((ref) {
+  return ref.watch(connectionManagerProvider).debugLog;
+});

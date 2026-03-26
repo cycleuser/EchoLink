@@ -10,6 +10,7 @@ abstract class ConnectionManager {
   Stream<EchoLinkConnectionState> get connectionState;
   Stream<Message> get incomingMessages;
   Stream<FileTransfer> get fileTransfers;
+  Stream<String> get debugLog;
 
   Future<Result<void>> initialize();
   Future<Result<void>> startDiscovery();
@@ -38,6 +39,9 @@ class ConnectionManagerImpl implements ConnectionManager {
 
   @override
   Stream<FileTransfer> get fileTransfers => Stream.empty();
+
+  @override
+  Stream<String> get debugLog => _networkService.debugLog;
 
   @override
   Future<Result<void>> initialize() async {
