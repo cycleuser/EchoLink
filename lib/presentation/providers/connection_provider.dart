@@ -3,10 +3,11 @@ import '../../domain/models/models.dart';
 import '../../infrastructure/network/connection_manager.dart';
 import '../../core/result.dart';
 
-class ConnectionNotifier extends StateNotifier<ConnectionState> {
+class ConnectionNotifier extends StateNotifier<EchoLinkConnectionState> {
   final ConnectionManager _connectionManager;
+  bool _autoConnectEnabled = true;
 
-  ConnectionNotifier(this._connectionManager) : super(ConnectionState.disconnected) {
+  ConnectionNotifier(this._connectionManager) : super(EchoLinkConnectionState.disconnected) {
     _init();
   }
 
@@ -16,11 +17,26 @@ class ConnectionNotifier extends StateNotifier<ConnectionState> {
     });
   }
 
+  bool get autoConnectEnabled => _autoConnectEnabled;
+
+  void setAutoConnect(bool enabled) {
+    _autoConnectEnabled = enabled;
+  }
+
   Future<Result<void>> initialize() => _connectionManager.initialize();
   Future<Result<void>> startDiscovery() => _connectionManager.startDiscovery();
   Future<Result<void>> stopDiscovery() => _connectionManager.stopDiscovery();
   Future<Result<void>> connect(Device device) => _connectionManager.connect(device);
   Future<Result<void>> disconnect() => _connectionManager.disconnect();
+
+  Future<void> autoConnectToFirstDevice(List<Device> devices) async {
+    if (!_autoConnectEnabled) return;
+    if (state == EchoLinkConnectionState.connected) return;
+    if (devices.isEmpty) return;
+
+    final device = devices.first;
+    await connect(device);
+  }
 }
 
 class DiscoveredDevicesNotifier extends StateNotifier<List<Device>> {
@@ -60,7 +76,7 @@ final connectionManagerProvider = Provider<ConnectionManager>((ref) {
   return ConnectionManagerImpl();
 });
 
-final connectionStateProvider = StateNotifierProvider<ConnectionNotifier, ConnectionState>((ref) {
+final connectionStateProvider = StateNotifierProvider<ConnectionNotifier, EchoLinkConnectionState>((ref) {
   return ConnectionNotifier(ref.watch(connectionManagerProvider));
 });
 
@@ -71,3 +87,5 @@ final discoveredDevicesProvider = StateNotifierProvider<DiscoveredDevicesNotifie
 final currentDeviceProvider = StateNotifierProvider<CurrentDeviceNotifier, Device?>((ref) {
   return CurrentDeviceNotifier(ref.watch(connectionManagerProvider));
 });
+
+final autoConnectEnabledProvider = StateProvider<bool>((ref) => true);

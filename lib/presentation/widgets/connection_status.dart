@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../providers/providers.dart';
+import '../../../domain/models/models.dart';
 
 class ConnectionStatusWidget extends StatelessWidget {
-  final ConnectionState state;
+  final EchoLinkConnectionState state;
 
   const ConnectionStatusWidget({
     super.key,
@@ -56,75 +56,75 @@ class ConnectionStatusWidget extends StatelessWidget {
 
   Color _getBackgroundColor(BuildContext context) {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return Theme.of(context).colorScheme.primaryContainer;
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return Theme.of(context).colorScheme.secondaryContainer;
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return Theme.of(context).colorScheme.tertiaryContainer;
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return Theme.of(context).colorScheme.surfaceContainerHighest;
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return Theme.of(context).colorScheme.errorContainer;
     }
   }
 
   Color _getForegroundColor(BuildContext context) {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return Theme.of(context).colorScheme.onPrimaryContainer;
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return Theme.of(context).colorScheme.onSecondaryContainer;
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return Theme.of(context).colorScheme.onTertiaryContainer;
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return Theme.of(context).colorScheme.onSurfaceVariant;
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return Theme.of(context).colorScheme.onErrorContainer;
     }
   }
 
   IconData _getIcon() {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return Icons.wifi;
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return Icons.wifi_lock;
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return Icons.wifi_find;
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return Icons.wifi_off;
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return Icons.error_outline;
     }
   }
 
   String _getTitle() {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return 'Connected';
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return 'Connecting...';
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return 'Discovering...';
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return 'Disconnected';
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return 'Connection Error';
     }
   }
 
   String _getSubtitle() {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return 'Ready to communicate';
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return 'Please wait';
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return 'Searching for nearby devices';
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return 'Tap discover to find devices';
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return 'Please try again';
     }
   }

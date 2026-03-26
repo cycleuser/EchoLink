@@ -26,14 +26,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final connectionState = ref.watch(connectionStateProvider);
     final chatState = ref.watch(chatProvider);
+    final connectedDevice = ref.watch(connectedDeviceProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: chatState.connectedDevice != null
+        title: connectedDevice != null
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(chatState.connectedDevice!.name),
+                  Text(connectedDevice.name),
                   Text(
                     _getConnectionStatusText(connectionState),
                     style: Theme.of(context).textTheme.bodySmall,
@@ -48,7 +49,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
         ],
       ),
-      body: connectionState.isConnected
+      body: connectionState == EchoLinkConnectionState.connected
           ? _buildChatContent(chatState)
           : _buildEmptyState(context),
     );
@@ -74,7 +75,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       itemCount: messages.length,
       itemBuilder: (context, index) {
         final message = messages[index];
-        final isMe = message.senderId == 'current_device';
+        final isMe = message.status == MessageStatus.sent || 
+                     message.status == MessageStatus.sending;
         return MessageBubble(
           message: message,
           isMe: isMe,
@@ -201,17 +203,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-  String _getConnectionStatusText(ConnectionState state) {
+  String _getConnectionStatusText(EchoLinkConnectionState state) {
     switch (state) {
-      case ConnectionState.connected:
+      case EchoLinkConnectionState.connected:
         return 'Connected';
-      case ConnectionState.connecting:
+      case EchoLinkConnectionState.connecting:
         return 'Connecting...';
-      case ConnectionState.discovering:
+      case EchoLinkConnectionState.discovering:
         return 'Discovering...';
-      case ConnectionState.disconnected:
+      case EchoLinkConnectionState.disconnected:
         return 'Disconnected';
-      case ConnectionState.error:
+      case EchoLinkConnectionState.error:
         return 'Connection Error';
     }
   }

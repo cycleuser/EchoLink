@@ -7,7 +7,7 @@ import 'cross_platform_network_service.dart';
 
 abstract class ConnectionManager {
   Stream<Device> get discoveredDevices;
-  Stream<ConnectionState> get connectionState;
+  Stream<EchoLinkConnectionState> get connectionState;
   Stream<Message> get incomingMessages;
   Stream<FileTransfer> get fileTransfers;
 
@@ -31,7 +31,7 @@ class ConnectionManagerImpl implements ConnectionManager {
   Stream<Device> get discoveredDevices => _networkService.deviceDiscovered;
 
   @override
-  Stream<ConnectionState> get connectionState => _networkService.connectionState;
+  Stream<EchoLinkConnectionState> get connectionState => _networkService.connectionState;
 
   @override
   Stream<Message> get incomingMessages => _networkService.messageReceived;

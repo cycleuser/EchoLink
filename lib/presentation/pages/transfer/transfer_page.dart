@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
 import '../../providers/providers.dart';
+import '../../../domain/models/models.dart';
 import '../../widgets/widgets.dart';
 
 class TransferPage extends ConsumerWidget {
@@ -22,14 +22,14 @@ class TransferPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: connectionState.isConnected
+      body: connectionState == EchoLinkConnectionState.connected
           ? _buildTransferContent(context, ref, transferState)
           : _buildEmptyState(context),
-      floatingActionButton: connectionState.isConnected
+      floatingActionButton: connectionState == EchoLinkConnectionState.connected
           ? FloatingActionButton.extended(
-              onPressed: () => _pickFile(context, ref),
+              onPressed: () => _sendTestFile(context, ref),
               icon: const Icon(Icons.attach_file),
-              label: const Text('Send File'),
+              label: const Text('Send Test File'),
             )
           : null,
     );
@@ -41,7 +41,7 @@ class TransferPage extends ConsumerWidget {
     TransferState transferState,
   ) {
     if (transferState.transfers.isEmpty) {
-      return _buildNoTransfers(context);
+      return _buildNoTransfers(context, ref);
     }
 
     return ListView(
@@ -58,12 +58,7 @@ class TransferPage extends ConsumerWidget {
             ),
           ),
           ...transferState.activeTransfers.map(
-            (transfer) => TransferProgressWidget(
-              transfer: transfer,
-              onPause: () => _pauseTransfer(ref, transfer.id),
-              onResume: () => _resumeTransfer(ref, transfer.id),
-              onCancel: () => _cancelTransfer(context, ref, transfer.id),
-            ),
+            (transfer) => TransferProgressWidget(transfer: transfer),
           ),
         ],
         if (transferState.completedTransfers.isNotEmpty) ...[
@@ -77,16 +72,14 @@ class TransferPage extends ConsumerWidget {
             ),
           ),
           ...transferState.completedTransfers.map(
-            (transfer) => TransferProgressWidget(
-              transfer: transfer,
-            ),
+            (transfer) => TransferProgressWidget(transfer: transfer),
           ),
         ],
       ],
     );
   }
 
-  Widget _buildNoTransfers(BuildContext context) {
+  Widget _buildNoTransfers(BuildContext context, WidgetRef ref) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -103,10 +96,16 @@ class TransferPage extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Tap "Send File" to start a transfer',
+            'Tap "Send Test File" to test file transfer',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.outline,
                 ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () => _sendTestFile(context, ref),
+            icon: const Icon(Icons.send),
+            label: const Text('Send Test File'),
           ),
         ],
       ),
@@ -140,34 +139,17 @@ class TransferPage extends ConsumerWidget {
     );
   }
 
-  Future<void> _pickFile(BuildContext context, WidgetRef ref) async {
+  Future<void> _sendTestFile(BuildContext context, WidgetRef ref) async {
     try {
-      final result = await FilePicker.platform.pickFiles();
+      await ref.read(transferProvider.notifier).sendTestFile();
 
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        
-        if (file.path != null) {
-          final connectionState = ref.read(connectionStateProvider);
-          final devices = ref.read(discoveredDevicesProvider);
-          final connectedDevice = devices.firstWhere(
-            (d) => d.status == DeviceStatus.connected,
-            orElse: () => throw Exception('No connected device'),
-          );
-
-          await ref.read(transferProvider.notifier).sendFile(
-                receiverId: connectedDevice.id,
-                filePath: file.path!,
-              );
-
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Sending ${file.name}...'),
-              ),
-            );
-          }
-        }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Test file sent!'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
@@ -178,42 +160,6 @@ class TransferPage extends ConsumerWidget {
           ),
         );
       }
-    }
-  }
-
-  Future<void> _pauseTransfer(WidgetRef ref, String transferId) async {
-    await ref.read(transferProvider.notifier).pauseTransfer(transferId);
-  }
-
-  Future<void> _resumeTransfer(WidgetRef ref, String transferId) async {
-    await ref.read(transferProvider.notifier).resumeTransfer(transferId);
-  }
-
-  Future<void> _cancelTransfer(
-    BuildContext context,
-    WidgetRef ref,
-    String transferId,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel Transfer'),
-        content: const Text('Are you sure you want to cancel this transfer?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await ref.read(transferProvider.notifier).cancelTransfer(transferId);
     }
   }
 }

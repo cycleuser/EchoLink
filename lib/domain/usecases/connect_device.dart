@@ -15,5 +15,5 @@ class ConnectDevice {
     return _repository.connect(device);
   }
 
-  Stream<ConnectionState> watchConnectionState() => _repository.connectionState;
+  Stream<EchoLinkConnectionState> watchConnectionState() => _repository.connectionState;
 }

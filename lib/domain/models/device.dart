@@ -1,10 +1,10 @@
-enum DevicePlatform { android, ios, unknown }
+enum DevicePlatform { android, ios, macos, unknown }
 
 enum ConnectionType { wifiDirect, multipeer, hotspot, wifiAware }
 
 enum DeviceStatus { disconnected, discovering, connecting, connected }
 
-enum ConnectionState { disconnected, discovering, connecting, connected, error }
+enum EchoLinkConnectionState { disconnected, discovering, connecting, connected, error }
 
 class Device {
   final String id;
@@ -59,6 +59,8 @@ class Device {
 
   bool get isAndroid => platform == DevicePlatform.android;
   bool get isIOS => platform == DevicePlatform.ios;
+  bool get isMacOS => platform == DevicePlatform.macos;
+  bool get isAppleDevice => platform == DevicePlatform.ios || platform == DevicePlatform.macos;
 
   String get displayName => name.isEmpty ? 'Unknown Device' : name;
 

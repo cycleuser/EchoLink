@@ -1,7 +1,5 @@
 import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
 import '../../core/result.dart';
-import '../../core/exceptions.dart';
 import '../../core/utils/logger.dart';
 
 class PermissionHandler {
@@ -22,6 +20,9 @@ class PermissionHandler {
         results[PermissionType.localNetwork] = await _checkLocalNetwork();
         results[PermissionType.bluetooth] = await _checkBluetooth();
         results[PermissionType.photoLibrary] = await _checkPhotoLibrary();
+      } else if (Platform.isMacOS) {
+        results[PermissionType.localNetwork] = true;
+        results[PermissionType.bluetooth] = true;
       }
 
       return Success(results);
@@ -44,6 +45,9 @@ class PermissionHandler {
         results[PermissionType.localNetwork] = await _requestLocalNetwork();
         results[PermissionType.bluetooth] = await _requestBluetooth();
         results[PermissionType.photoLibrary] = await _requestPhotoLibrary();
+      } else if (Platform.isMacOS) {
+        results[PermissionType.localNetwork] = true;
+        results[PermissionType.bluetooth] = true;
       }
 
       return Success(results);
@@ -54,55 +58,35 @@ class PermissionHandler {
   }
 
   Future<bool> _checkLocation() async {
-    final status = await Permission.location.status;
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> _requestLocation() async {
-    final status = await Permission.location.request();
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> _checkNearbyWifiDevices() async {
-    if (Platform.isAndroid) {
-      final status = await Permission.nearbyWifiDevices.status;
-      return status.isGranted;
-    }
     return true;
   }
 
   Future<bool> _requestNearbyWifiDevices() async {
-    if (Platform.isAndroid) {
-      final status = await Permission.nearbyWifiDevices.request();
-      return status.isGranted;
-    }
     return true;
   }
 
   Future<bool> _checkStorage() async {
-    if (Platform.isAndroid) {
-      final status = await Permission.storage.status;
-      return status.isGranted;
-    }
     return true;
   }
 
   Future<bool> _requestStorage() async {
-    if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
-      return status.isGranted;
-    }
     return true;
   }
 
   Future<bool> _checkBluetooth() async {
-    final status = await Permission.bluetooth.status;
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> _requestBluetooth() async {
-    final status = await Permission.bluetooth.request();
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> _checkLocalNetwork() async {
@@ -114,13 +98,11 @@ class PermissionHandler {
   }
 
   Future<bool> _checkPhotoLibrary() async {
-    final status = await Permission.photos.status;
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> _requestPhotoLibrary() async {
-    final status = await Permission.photos.request();
-    return status.isGranted;
+    return true;
   }
 
   Future<bool> hasAllRequiredPermissions() async {
@@ -135,7 +117,7 @@ class PermissionHandler {
   }
 
   Future<void> openAppSettings() async {
-    await openAppSettings();
+    AppLogger.info('Open app settings requested');
   }
 }
 

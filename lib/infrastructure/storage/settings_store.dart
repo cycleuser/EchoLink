@@ -1,29 +1,20 @@
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
 import '../../core/constants.dart';
 import '../../core/utils/logger.dart';
 
 class MessageStore {
-  static const String _boxName = 'messages';
-  Box<dynamic>? _box;
+  final Map<String, Map<String, dynamic>> _messages = {};
 
   Future<Result<void>> initialize() async {
-    try {
-      _box = await Hive.openBox(_boxName);
-      AppLogger.info('Message store initialized');
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to initialize message store', e);
-      return Failure(e.toString());
-    }
+    AppLogger.info('Message store initialized');
+    return const Success(null);
   }
 
   Future<Result<void>> saveMessage(Message message) async {
     try {
       final key = '${message.senderId}_${message.id}';
-      await _box?.put(key, message.toJson());
+      _messages[key] = message.toJson();
       return const Success(null);
     } catch (e) {
       AppLogger.error('Failed to save message', e);
@@ -34,14 +25,10 @@ class MessageStore {
   Future<Result<List<Message>>> getMessages(String deviceId) async {
     try {
       final messages = <Message>[];
-      final keys = _box?.keys.toList() ?? [];
 
-      for (final key in keys) {
-        if (key.toString().startsWith(deviceId)) {
-          final data = _box?.get(key);
-          if (data != null) {
-            messages.add(Message.fromJson(Map<String, dynamic>.from(data)));
-          }
+      for (final entry in _messages.entries) {
+        if (entry.key.startsWith(deviceId)) {
+          messages.add(Message.fromJson(entry.value));
         }
       }
 
@@ -55,16 +42,7 @@ class MessageStore {
 
   Future<Result<void>> deleteMessage(String messageId) async {
     try {
-      final keys = _box?.keys.toList() ?? [];
-      
-      for (final key in keys) {
-        final data = _box?.get(key);
-        if (data != null && data['id'] == messageId) {
-          await _box?.delete(key);
-          break;
-        }
-      }
-      
+      _messages.removeWhere((key, value) => value['id'] == messageId);
       return const Success(null);
     } catch (e) {
       AppLogger.error('Failed to delete message', e);
@@ -74,14 +52,7 @@ class MessageStore {
 
   Future<Result<void>> clearMessages(String deviceId) async {
     try {
-      final keys = _box?.keys.toList() ?? [];
-      
-      for (final key in keys) {
-        if (key.toString().startsWith(deviceId)) {
-          await _box?.delete(key);
-        }
-      }
-      
+      _messages.removeWhere((key, _) => key.startsWith(deviceId));
       return const Success(null);
     } catch (e) {
       AppLogger.error('Failed to clear messages', e);
@@ -90,94 +61,54 @@ class MessageStore {
   }
 
   Future<void> dispose() async {
-    await _box?.close();
+    _messages.clear();
   }
 }
 
 class SettingsStore {
-  static const String _boxName = 'settings';
-  Box<dynamic>? _box;
+  String _deviceName = 'EchoLink Device';
+  bool _notificationsEnabled = true;
+  final List<String> _lastConnectedDevices = [];
 
   Future<Result<void>> initialize() async {
-    try {
-      _box = await Hive.openBox(_boxName);
-      AppLogger.info('Settings store initialized');
-      return const Success(null);
-    } catch (e) {
-      AppLogger.error('Failed to initialize settings store', e);
-      return Failure(e.toString());
-    }
+    AppLogger.info('Settings store initialized');
+    return const Success(null);
   }
 
   Future<Result<String>> getDeviceName() async {
-    try {
-      final name = _box?.get(StorageKeys.deviceName, defaultValue: 'EchoLink Device');
-      return Success(name as String);
-    } catch (e) {
-      return Failure(e.toString());
-    }
+    return Success(_deviceName);
   }
 
   Future<Result<void>> setDeviceName(String name) async {
-    try {
-      await _box?.put(StorageKeys.deviceName, name);
-      return const Success(null);
-    } catch (e) {
-      return Failure(e.toString());
-    }
+    _deviceName = name;
+    return const Success(null);
   }
 
   Future<Result<bool>> isNotificationsEnabled() async {
-    try {
-      final enabled = _box?.get(StorageKeys.notifications, defaultValue: true);
-      return Success(enabled as bool);
-    } catch (e) {
-      return Failure(e.toString());
-    }
+    return Success(_notificationsEnabled);
   }
 
   Future<Result<void>> setNotificationsEnabled(bool enabled) async {
-    try {
-      await _box?.put(StorageKeys.notifications, enabled);
-      return const Success(null);
-    } catch (e) {
-      return Failure(e.toString());
-    }
+    _notificationsEnabled = enabled;
+    return const Success(null);
   }
 
   Future<Result<List<String>>> getLastConnectedDevices() async {
-    try {
-      final devices = _box?.get(StorageKeys.lastConnectedDevices, defaultValue: <String>[]);
-      return Success(List<String>.from(devices));
-    } catch (e) {
-      return Failure(e.toString());
-    }
+    return Success(List.from(_lastConnectedDevices));
   }
 
   Future<Result<void>> addLastConnectedDevice(String deviceId) async {
-    try {
-      final devices = await getLastConnectedDevices();
-      
-      return devices.when(
-        success: (list) async {
-          list.remove(deviceId);
-          list.insert(0, deviceId);
-          
-          if (list.length > 10) {
-            list.removeRange(10, list.length);
-          }
-          
-          await _box?.put(StorageKeys.lastConnectedDevices, list);
-          return const Success(null);
-        },
-        failure: (message, {exception}) => Failure(message),
-      );
-    } catch (e) {
-      return Failure(e.toString());
+    _lastConnectedDevices.remove(deviceId);
+    _lastConnectedDevices.insert(0, deviceId);
+    
+    if (_lastConnectedDevices.length > 10) {
+      _lastConnectedDevices.removeRange(10, _lastConnectedDevices.length);
     }
+    
+    return const Success(null);
   }
 
   Future<void> dispose() async {
-    await _box?.close();
+    _lastConnectedDevices.clear();
   }
 }

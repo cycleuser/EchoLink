@@ -15,19 +15,3 @@ abstract class ConnectionRepository {
   Future<Result<List<Device>>> getDiscoveredDevices();
   Future<void> dispose();
 }
-
-enum EchoLinkConnectionState {
-  disconnected,
-  discovering,
-  connecting,
-  connected,
-  error,
-}
-
-extension EchoLinkConnectionStateExtension on EchoLinkConnectionState {
-  bool get isConnected => this == EchoLinkConnectionState.connected;
-  bool get isDisconnected => this == EchoLinkConnectionState.disconnected;
-  bool get isDiscovering => this == EchoLinkConnectionState.discovering;
-  bool get isConnecting => this == EchoLinkConnectionState.connecting;
-  bool get hasError => this == EchoLinkConnectionState.error;
-}

@@ -110,6 +110,8 @@ class DeviceCard extends StatelessWidget {
         return Icons.phone_android;
       case DevicePlatform.ios:
         return Icons.phone_iphone;
+      case DevicePlatform.macos:
+        return Icons.computer;
       case DevicePlatform.unknown:
         return Icons.devices;
     }
@@ -118,10 +120,15 @@ class DeviceCard extends StatelessWidget {
   String _getDeviceSubtitle() {
     final parts = <String>[];
 
-    if (device.platform == DevicePlatform.android) {
-      parts.add('Android');
-    } else if (device.platform == DevicePlatform.ios) {
-      parts.add('iOS');
+    switch (device.platform) {
+      case DevicePlatform.android:
+        parts.add('Android');
+      case DevicePlatform.ios:
+        parts.add('iOS');
+      case DevicePlatform.macos:
+        parts.add('macOS');
+      case DevicePlatform.unknown:
+        parts.add('Unknown');
     }
 
     if (device.connectionType != null) {

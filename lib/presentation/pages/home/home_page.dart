@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
+import '../../../domain/models/models.dart';
+import '../../../core/utils/logger.dart';
 import '../chat/chat_page.dart';
 import '../transfer/transfer_page.dart';
 import '../settings/settings_page.dart';
-import '../widgets/device_card.dart';
-import '../widgets/connection_status.dart';
+import '../../widgets/device_card.dart';
+import '../../widgets/connection_status.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -31,6 +33,11 @@ class _HomePageState extends ConsumerState<HomePage> {
       setState(() {
         _isInitialized = result.isSuccess;
       });
+      
+      // Auto-start discovery after initialization
+      if (_isInitialized) {
+        _startDiscovery();
+      }
     }
   }
 
@@ -42,6 +49,14 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     final connectionState = ref.watch(connectionStateProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider);
+
+    // Auto-connect to first discovered device
+    if (discoveredDevices.isNotEmpty && connectionState == EchoLinkConnectionState.disconnected) {
+      final autoConnectEnabled = ref.read(autoConnectEnabledProvider);
+      if (autoConnectEnabled) {
+        Future.microtask(() => _autoConnect(discoveredDevices.first));
+      }
+    }
 
     return Scaffold(
       body: IndexedStack(
@@ -105,13 +120,19 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildHomeContent(
-    ConnectionState connectionState,
+    EchoLinkConnectionState connectionState,
     List<Device> discoveredDevices,
   ) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('EchoLink'),
         actions: [
+          Switch(
+            value: ref.watch(autoConnectEnabledProvider),
+            onChanged: (value) {
+              ref.read(autoConnectEnabledProvider.notifier).state = value;
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _startDiscovery,
@@ -136,9 +157,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildDeviceList(
     List<Device> devices,
-    ConnectionState connectionState,
+    EchoLinkConnectionState connectionState,
   ) {
-    if (connectionState == ConnectionState.discovering) {
+    if (connectionState == EchoLinkConnectionState.discovering) {
       return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -226,7 +247,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               const SizedBox(height: 8),
               Text(
                 'EchoLink works across macOS, Android, and iOS.\n'
-                'All devices on the same Wi-Fi network can discover and connect to each other.',
+                'All devices on the same network can discover and connect.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -245,6 +266,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) {
       await ref.read(connectionStateProvider.notifier).stopDiscovery();
     }
+  }
+
+  Future<void> _autoConnect(Device device) async {
+    AppLogger.info('Auto-connecting to ${device.name}');
+    await _connectToDevice(device);
   }
 
   Future<void> _connectToDevice(Device device) async {

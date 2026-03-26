@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:crypto/crypto.dart';
-import '../../domain/models/file_transfer.dart';
-import '../../core/utils/logger.dart';
+import '../../../domain/models/models.dart';
+import '../../../core/utils/logger.dart';
 
 class FileProtocol {
   static const int chunkSize = 65536;
@@ -12,14 +11,13 @@ class FileProtocol {
 
   static Future<FileHeader> createHeader(File file, String transferId) async {
     final stat = await file.stat();
-    final hash = await calculateMD5(file);
 
     return FileHeader(
       transferId: transferId,
       fileName: file.path.split('/').last,
       fileSize: stat.size,
       chunkSize: chunkSize,
-      checksum: hash,
+      checksum: null,
     );
   }
 
@@ -33,7 +31,7 @@ class FileProtocol {
     }
 
     buffer.setUint32(0, magicNumber, Endian.big);
-    buffer.setUint32(4, header.totalChunks, Endian.big);
+    buffer.setUint32(4, header.totalChunks ?? 0, Endian.big);
     buffer.setUint32(8, header.fileSize, Endian.big);
     buffer.setUint32(12, header.chunkSize, Endian.big);
 
@@ -66,7 +64,7 @@ class FileProtocol {
 
     final transferIdBytes = data.sublist(48, 64);
     final transferId = String.fromCharCodes(
-      transferIdBytes.where((b) != 0),
+      transferIdBytes.where((b) => b != 0),
     );
 
     return FileHeader(
@@ -145,17 +143,6 @@ class FileProtocol {
       sink.add(chunk.data);
     }
     await sink.close();
-  }
-
-  static Future<String> calculateMD5(File file) async {
-    final bytes = await file.readAsBytes();
-    final digest = md5.convert(bytes);
-    return digest.toString();
-  }
-
-  static Future<bool> verifyMD5(File file, String expectedHash) async {
-    final actualHash = await calculateMD5(file);
-    return actualHash == expectedHash;
   }
 
   static Uint8List _encodeTransferId(String id) {

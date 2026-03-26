@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
-import '../../core/constants.dart';
 import '../../core/utils/logger.dart';
 
 class CrossPlatformNetworkService {
@@ -13,22 +12,24 @@ class CrossPlatformNetworkService {
 
   static const int discoveryPort = 50505;
   static const int baseDataPort = 50506;
-  static const String multicastGroup = '239.255.0.1';
   static const Duration discoveryInterval = Duration(seconds: 2);
-  static const Duration deviceTimeout = Duration(seconds: 15);
+  static const Duration deviceTimeout = Duration(seconds: 20);
+
+  // Android emulator special addresses
+  static const String androidHostAddress = '10.0.2.2';
 
   final _devicesController = StreamController<Device>.broadcast();
   final _messagesController = StreamController<Message>.broadcast();
-  final _connectionStateController = StreamController<ConnectionState>.broadcast();
+  final _connectionStateController = StreamController<EchoLinkConnectionState>.broadcast();
   final _connectedDeviceController = StreamController<Device?>.broadcast();
 
   RawDatagramSocket? _broadcastSocket;
-  RawDatagramSocket? _multicastSocket;
   ServerSocket? _dataServer;
   Socket? _dataSocket;
 
   Timer? _broadcastTimer;
   Timer? _cleanupTimer;
+  Timer? _hostProbeTimer;
 
   String _deviceId = '';
   String _deviceName = '';
@@ -38,10 +39,13 @@ class CrossPlatformNetworkService {
   bool _isDiscovering = false;
   Device? _connectedDevice;
   final Map<String, Device> _discoveredDevices = {};
+  
+  // Track if running on emulator
+  bool _isAndroidEmulator = false;
 
   Stream<Device> get deviceDiscovered => _devicesController.stream;
   Stream<Message> get messageReceived => _messagesController.stream;
-  Stream<ConnectionState> get connectionState => _connectionStateController.stream;
+  Stream<EchoLinkConnectionState> get connectionState => _connectionStateController.stream;
   Stream<Device?> get connectedDeviceStream => _connectedDeviceController.stream;
 
   bool get isInitialized => _isInitialized;
@@ -60,20 +64,36 @@ class CrossPlatformNetworkService {
       _deviceId = _generateDeviceId();
       _deviceName = deviceName;
 
+      // Detect if running on Android emulator
+      _isAndroidEmulator = Platform.isAndroid && await _checkIsAndroidEmulator();
+
       await _detectNetworkInterface();
       await _startDataServer();
       await _startDiscoveryListeners();
 
       _startCleanupTimer();
 
+      // Start special probing for cross-platform discovery
+      if (_isAndroidEmulator) {
+        _startAndroidEmulatorProbing();
+      }
+
       _isInitialized = true;
-      AppLogger.info('CrossPlatformNetwork initialized: $_deviceName at $_localAddress:$_dataPort');
+      AppLogger.info('Network initialized: $_deviceName at $_localAddress:$_dataPort (emulator: $_isAndroidEmulator)');
 
       return const Success(null);
     } catch (e) {
       AppLogger.error('Failed to initialize network service', e);
       return Failure(e.toString());
     }
+  }
+
+  Future<bool> _checkIsAndroidEmulator() async {
+    if (!Platform.isAndroid) return false;
+    
+    // Check if address starts with 10.0.2.x (emulator network)
+    return _localAddress.startsWith('10.0.2.') || 
+           _localAddress.startsWith('10.0.15.');
   }
 
   Future<Result<void>> startDiscovery() async {
@@ -88,14 +108,18 @@ class CrossPlatformNetworkService {
     try {
       _isDiscovering = true;
       _discoveredDevices.clear();
-      _connectionStateController.add(ConnectionState.discovering);
+      _connectionStateController.add(EchoLinkConnectionState.discovering);
 
       _broadcastTimer?.cancel();
       _broadcastTimer = Timer.periodic(discoveryInterval, (_) {
         _broadcastPresence();
       });
 
+      // Immediate broadcast
       _broadcastPresence();
+      
+      // Send direct probe to known addresses
+      _sendDiscoveryProbes();
 
       AppLogger.info('Discovery started');
       return const Success(null);
@@ -116,7 +140,7 @@ class CrossPlatformNetworkService {
       _isDiscovering = false;
 
       if (_connectedDevice == null) {
-        _connectionStateController.add(ConnectionState.disconnected);
+        _connectionStateController.add(EchoLinkConnectionState.disconnected);
       }
 
       AppLogger.info('Discovery stopped');
@@ -133,15 +157,29 @@ class CrossPlatformNetworkService {
     }
 
     try {
-      _connectionStateController.add(ConnectionState.connecting);
-      AppLogger.info('Connecting to ${device.name} at ${device.ipAddress}:${device.port}');
+      _connectionStateController.add(EchoLinkConnectionState.connecting);
+      
+      // Determine the correct address to connect to
+      String targetAddress = device.ipAddress ?? '';
+      int targetPort = device.port ?? baseDataPort;
 
+      // Handle Android emulator connecting to host
+      if (_isAndroidEmulator && device.platform == DevicePlatform.ios) {
+        // iOS simulator / macOS host - try emulator host address first
+        AppLogger.info('Android emulator connecting to macOS/iOS, trying $androidHostAddress');
+        final success = await _tryConnect(androidHostAddress, targetPort, device);
+        if (success) return const Success(null);
+      }
+
+      // Try the device's reported address
+      AppLogger.info('Connecting to ${device.name} at $targetAddress:$targetPort');
+      
       _dataSocket?.destroy();
       _dataSocket = null;
 
       _dataSocket = await Socket.connect(
-        device.ipAddress!,
-        device.port!,
+        targetAddress,
+        targetPort,
         timeout: const Duration(seconds: 10),
       );
 
@@ -153,19 +191,50 @@ class CrossPlatformNetworkService {
         connectionType: ConnectionType.wifiDirect,
       );
 
-      _connectionStateController.add(ConnectionState.connected);
+      _connectionStateController.add(EchoLinkConnectionState.connected);
       _connectedDeviceController.add(_connectedDevice);
 
       AppLogger.info('Connected to ${device.name}');
       return const Success(null);
     } on SocketException catch (e) {
       AppLogger.error('Connection failed', e);
-      _connectionStateController.add(ConnectionState.error);
+      _connectionStateController.add(EchoLinkConnectionState.error);
       return Failure('Connection failed: ${e.message}');
     } catch (e) {
       AppLogger.error('Connection failed', e);
-      _connectionStateController.add(ConnectionState.error);
+      _connectionStateController.add(EchoLinkConnectionState.error);
       return Failure(e.toString());
+    }
+  }
+
+  Future<bool> _tryConnect(String address, int port, Device device) async {
+    try {
+      final socket = await Socket.connect(
+        address,
+        port,
+        timeout: const Duration(seconds: 5),
+      );
+
+      _dataSocket?.destroy();
+      _dataSocket = socket;
+
+      _sendHandshake(socket);
+      _listenToSocket(socket);
+
+      _connectedDevice = device.copyWith(
+        status: DeviceStatus.connected,
+        ipAddress: address,
+        connectionType: ConnectionType.wifiDirect,
+      );
+
+      _connectionStateController.add(EchoLinkConnectionState.connected);
+      _connectedDeviceController.add(_connectedDevice);
+
+      AppLogger.info('Connected to ${device.name} via $address');
+      return true;
+    } catch (e) {
+      AppLogger.debug('Failed to connect to $address: $e');
+      return false;
     }
   }
 
@@ -175,7 +244,7 @@ class CrossPlatformNetworkService {
       _dataSocket = null;
       _connectedDevice = null;
 
-      _connectionStateController.add(ConnectionState.disconnected);
+      _connectionStateController.add(EchoLinkConnectionState.disconnected);
       _connectedDeviceController.add(null);
 
       AppLogger.info('Disconnected');
@@ -243,9 +312,9 @@ class CrossPlatformNetworkService {
   Future<void> dispose() async {
     _broadcastTimer?.cancel();
     _cleanupTimer?.cancel();
+    _hostProbeTimer?.cancel();
 
     _broadcastSocket?.close();
-    _multicastSocket?.close();
     await _dataServer?.close();
     _dataSocket?.destroy();
 
@@ -263,6 +332,8 @@ class CrossPlatformNetworkService {
   Future<void> _detectNetworkInterface() async {
     try {
       final interfaces = await NetworkInterface.list();
+      
+      // Priority order for interface selection
       for (final interface in interfaces) {
         for (final addr in interface.addresses) {
           if (addr.type == InternetAddressType.IPv4 &&
@@ -277,7 +348,13 @@ class CrossPlatformNetworkService {
     } catch (e) {
       AppLogger.error('Failed to detect network interface', e);
     }
-    _localAddress = '127.0.0.1';
+    
+    // Fallback
+    if (Platform.isAndroid) {
+      _localAddress = '10.0.2.15'; // Default emulator address
+    } else {
+      _localAddress = '127.0.0.1';
+    }
   }
 
   Future<void> _startDataServer() async {
@@ -340,14 +417,94 @@ class CrossPlatformNetworkService {
     final bytes = utf8.encode(data);
 
     try {
+      // Broadcast to local network
+      _broadcastSocket?.send(bytes, InternetAddress('255.255.255.255'), discoveryPort);
+      
+      // Broadcast to subnet
       final broadcastAddr = _getBroadcastAddress();
       if (broadcastAddr != null) {
         _broadcastSocket?.send(bytes, InternetAddress(broadcastAddr), discoveryPort);
       }
-      _broadcastSocket?.send(bytes, InternetAddress('255.255.255.255'), discoveryPort);
+
+      // Android emulator: send to host
+      if (_isAndroidEmulator) {
+        _broadcastSocket?.send(bytes, InternetAddress(androidHostAddress), discoveryPort);
+      }
+
+      // macOS/iOS: also broadcast to localhost for local testing
+      if (!Platform.isAndroid) {
+        _broadcastSocket?.send(bytes, InternetAddress('127.0.0.1'), discoveryPort);
+      }
     } catch (e) {
       AppLogger.error('Failed to broadcast presence', e);
     }
+  }
+
+  void _sendDiscoveryProbes() {
+    if (_dataPort == 0) return;
+
+    final probeData = jsonEncode({
+      'type': 'probe',
+      'id': _deviceId,
+      'name': _deviceName,
+      'platform': _getPlatformString(),
+      'address': _localAddress,
+      'port': _dataPort,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    final bytes = utf8.encode(probeData);
+
+    try {
+      // Send to common addresses
+      final targetAddresses = <String>[
+        '255.255.255.255',
+        '127.0.0.1',
+      ];
+
+      // Add broadcast address
+      final broadcastAddr = _getBroadcastAddress();
+      if (broadcastAddr != null) {
+        targetAddresses.add(broadcastAddr);
+      }
+
+      // Android emulator: probe host
+      if (_isAndroidEmulator) {
+        targetAddresses.add(androidHostAddress);
+      }
+
+      // Send probes
+      for (final addr in targetAddresses) {
+        _broadcastSocket?.send(bytes, InternetAddress(addr), discoveryPort);
+      }
+    } catch (e) {
+      AppLogger.error('Failed to send discovery probes', e);
+    }
+  }
+
+  void _startAndroidEmulatorProbing() {
+    // Periodically probe the host machine
+    _hostProbeTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (_dataPort == 0) return;
+
+      final probeData = jsonEncode({
+        'type': 'probe',
+        'id': _deviceId,
+        'name': _deviceName,
+        'platform': _getPlatformString(),
+        'address': _localAddress,
+        'port': _dataPort,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      final bytes = utf8.encode(probeData);
+
+      try {
+        _broadcastSocket?.send(bytes, InternetAddress(androidHostAddress), discoveryPort);
+      } catch (e) {
+        // Ignore
+      }
+    });
   }
 
   void _handleDiscoveryPacket(Datagram datagram) {
@@ -360,7 +517,19 @@ class CrossPlatformNetworkService {
 
       final packetType = json['type'] as String? ?? 'announce';
 
-      final deviceAddress = json['address'] as String? ?? datagram.address.address;
+      // Respond to probes
+      if (packetType == 'probe') {
+        _sendProbeResponse(datagram.address.address);
+      }
+
+      // Get device address - prefer reported address, fall back to datagram source
+      String deviceAddress = json['address'] as String? ?? datagram.address.address;
+      
+      // Special handling for Android emulator receiving from host
+      if (_isAndroidEmulator && datagram.address.address == androidHostAddress) {
+        deviceAddress = androidHostAddress;
+      }
+
       final devicePort = json['port'] as int? ?? baseDataPort;
 
       final device = Device(
@@ -389,6 +558,27 @@ class CrossPlatformNetworkService {
     }
   }
 
+  void _sendProbeResponse(String targetAddress) {
+    if (_dataPort == 0) return;
+
+    try {
+      final responseData = jsonEncode({
+        'type': 'announce',
+        'id': _deviceId,
+        'name': _deviceName,
+        'platform': _getPlatformString(),
+        'address': _localAddress,
+        'port': _dataPort,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      final bytes = utf8.encode(responseData);
+      _broadcastSocket?.send(bytes, InternetAddress(targetAddress), discoveryPort);
+    } catch (e) {
+      // Ignore
+    }
+  }
+
   void _handleIncomingConnection(Socket socket) {
     AppLogger.info('Incoming connection from ${socket.remoteAddress.address}');
 
@@ -396,7 +586,6 @@ class CrossPlatformNetworkService {
     _dataSocket = socket;
 
     _listenToSocket(socket);
-
     _sendHandshake(socket);
   }
 
@@ -471,7 +660,7 @@ class CrossPlatformNetworkService {
       connectionType: ConnectionType.wifiDirect,
     );
 
-    _connectionStateController.add(ConnectionState.connected);
+    _connectionStateController.add(EchoLinkConnectionState.connected);
     _connectedDeviceController.add(_connectedDevice);
 
     AppLogger.info('Handshake completed with $senderName');
@@ -495,7 +684,7 @@ class CrossPlatformNetworkService {
     _connectedDevice = null;
     _dataSocket = null;
 
-    _connectionStateController.add(ConnectionState.disconnected);
+    _connectionStateController.add(EchoLinkConnectionState.disconnected);
     _connectedDeviceController.add(null);
   }
 
@@ -537,7 +726,7 @@ class CrossPlatformNetworkService {
   DevicePlatform _getPlatform() {
     if (Platform.isAndroid) return DevicePlatform.android;
     if (Platform.isIOS) return DevicePlatform.ios;
-    if (Platform.isMacOS) return DevicePlatform.ios;
+    if (Platform.isMacOS) return DevicePlatform.macos;
     return DevicePlatform.unknown;
   }
 
@@ -553,8 +742,9 @@ class CrossPlatformNetworkService {
       case 'android':
         return DevicePlatform.android;
       case 'ios':
-      case 'macos':
         return DevicePlatform.ios;
+      case 'macos':
+        return DevicePlatform.macos;
       default:
         return DevicePlatform.unknown;
     }

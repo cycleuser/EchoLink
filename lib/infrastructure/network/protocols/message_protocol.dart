@@ -112,8 +112,9 @@ class MessageProtocol {
       MessageStatus.sending => 1,
       MessageStatus.sent => 2,
       MessageStatus.delivered => 3,
-      MessageStatus.read => 4,
-      MessageStatus.failed => 5,
+      MessageStatus.received => 4,
+      MessageStatus.read => 5,
+      MessageStatus.failed => 6,
     };
   }
 
@@ -123,8 +124,9 @@ class MessageProtocol {
       1 => MessageStatus.sending,
       2 => MessageStatus.sent,
       3 => MessageStatus.delivered,
-      4 => MessageStatus.read,
-      5 => MessageStatus.failed,
+      4 => MessageStatus.received,
+      5 => MessageStatus.read,
+      6 => MessageStatus.failed,
       _ => MessageStatus.pending,
     };
   }

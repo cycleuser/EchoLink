@@ -100,6 +100,8 @@ class MessageBubble extends StatelessWidget {
         return Icons.check;
       case MessageStatus.delivered:
         return Icons.done_all;
+      case MessageStatus.received:
+        return Icons.done_all;
       case MessageStatus.read:
         return Icons.done_all;
       case MessageStatus.failed:
