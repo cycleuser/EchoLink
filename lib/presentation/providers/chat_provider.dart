@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
 import '../../infrastructure/network/cross_platform_network_service.dart';
+import 'connection_provider.dart';
 
 class ChatState {
   final List<Message> messages;
@@ -32,9 +34,10 @@ class ChatState {
 
   List<Message> get messagesForSelectedDevice {
     if (selectedDeviceId == null) return messages;
-    return messages.where((m) => 
-      m.senderId == selectedDeviceId || m.receiverId == selectedDeviceId
-    ).toList();
+    return messages
+        .where((m) =>
+            m.senderId == selectedDeviceId || m.receiverId == selectedDeviceId)
+        .toList();
   }
 }
 
@@ -53,7 +56,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
     state = state.copyWith(selectedDeviceId: deviceId);
   }
 
-  Future<Result<void>> sendTextMessage(String content, [String? deviceId]) async {
+  Future<Result<void>> sendTextMessage(String content,
+      [String? deviceId]) async {
     if (content.isEmpty) {
       return Failure('Message cannot be empty');
     }
@@ -100,12 +104,11 @@ class ChatNotifier extends StateNotifier<ChatState> {
   }
 
   void _onMessageReceived(Message message) {
-    final exists = state.messages.any((m) => 
-      m.id == message.id || 
-      (m.content == message.content && 
-       m.timestamp.difference(message.timestamp).inSeconds.abs() < 2)
-    );
-    
+    final exists = state.messages.any((m) =>
+        m.id == message.id ||
+        (m.content == message.content &&
+            m.timestamp.difference(message.timestamp).inSeconds.abs() < 2));
+
     if (!exists) {
       state = state.copyWith(messages: [...state.messages, message]);
     }
@@ -126,8 +129,12 @@ final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
 
 final selectedDeviceProvider = Provider<Device?>((ref) {
   final selectedId = ref.watch(chatProvider).selectedDeviceId;
-  if (selectedId == null) return null;
-  
-  final devices = CrossPlatformNetworkService().connectedDevices;
-  return devices.firstWhere((d) => d.id == selectedId, orElse: () => devices.first);
+  final devices = ref.watch(connectedDevicesNotifierProvider);
+
+  if (selectedId != null) {
+    final found = devices.where((d) => d.id == selectedId).firstOrNull;
+    if (found != null) return found;
+  }
+
+  return devices.isNotEmpty ? devices.first : null;
 });

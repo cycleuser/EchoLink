@@ -1,22 +1,27 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/models.dart';
 import '../../infrastructure/network/connection_manager.dart';
 import '../../core/result.dart';
 import '../../infrastructure/network/cross_platform_network_service.dart';
+import '../../core/utils/logger.dart';
 
 final connectionManagerProvider = Provider<ConnectionManager>((ref) {
   return ConnectionManagerImpl();
 });
 
-final connectionStateProvider = StateNotifierProvider<ConnectionNotifier, EchoLinkConnectionState>((ref) {
+final connectionStateProvider =
+    StateNotifierProvider<ConnectionNotifier, EchoLinkConnectionState>((ref) {
   return ConnectionNotifier(ref.watch(connectionManagerProvider));
 });
 
-final discoveredDevicesProvider = StateNotifierProvider<DiscoveredDevicesNotifier, List<Device>>((ref) {
+final discoveredDevicesProvider =
+    StateNotifierProvider<DiscoveredDevicesNotifier, List<Device>>((ref) {
   return DiscoveredDevicesNotifier(ref.watch(connectionManagerProvider));
 });
 
-final currentDeviceProvider = StateNotifierProvider<CurrentDeviceNotifier, Device?>((ref) {
+final currentDeviceProvider =
+    StateNotifierProvider<CurrentDeviceNotifier, Device?>((ref) {
   return CurrentDeviceNotifier(ref.watch(connectionManagerProvider));
 });
 
@@ -26,20 +31,78 @@ final debugLogProvider = Provider<Stream<String>>((ref) {
   return ref.watch(connectionManagerProvider).debugLog;
 });
 
-final connectedDevicesProvider = Provider<List<Device>>((ref) {
-  return CrossPlatformNetworkService().connectedDevices;
+final connectedDevicesNotifierProvider =
+    StateNotifierProvider<ConnectedDevicesNotifier, List<Device>>((ref) {
+  return ConnectedDevicesNotifier(ref);
 });
 
 final connectedDeviceProvider = Provider<Device?>((ref) {
-  final devices = ref.watch(connectedDevicesProvider);
+  final devices = ref.watch(connectedDevicesNotifierProvider);
+  AppLogger.info('connectedDeviceProvider: ${devices.length} devices');
   return devices.isNotEmpty ? devices.first : null;
 });
+
+class ConnectedDevicesNotifier extends StateNotifier<List<Device>> {
+  final Ref _ref;
+  Timer? _timer;
+  StreamSubscription<Device>? _deviceSubscription;
+
+  ConnectedDevicesNotifier(this._ref) : super([]) {
+    _startListening();
+    _startPolling();
+  }
+
+  void _startListening() {
+    _deviceSubscription =
+        CrossPlatformNetworkService().deviceDiscovered.listen((device) {
+      AppLogger.info('Device discovered in notifier: ${device.name}');
+    });
+  }
+
+  void _startPolling() {
+    _timer?.cancel();
+    _updateDevices();
+    _timer = Timer.periodic(const Duration(milliseconds: 300), (_) {
+      _updateDevices();
+    });
+  }
+
+  void _updateDevices() {
+    try {
+      final service = CrossPlatformNetworkService();
+      final connected = service.connectedDevices;
+      final discovered = service.discoveredDevices;
+
+      if (_listsDifferent(state, connected)) {
+        AppLogger.info('Connected devices changed: ${connected.length}');
+        state = connected;
+      }
+    } catch (e) {
+      AppLogger.error('Error updating devices', e);
+    }
+  }
+
+  bool _listsDifferent(List<Device> a, List<Device> b) {
+    if (a.length != b.length) return true;
+    final aIds = a.map((d) => d.id).toSet();
+    final bIds = b.map((d) => d.id).toSet();
+    return !aIds.containsAll(bIds) || !bIds.containsAll(aIds);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _deviceSubscription?.cancel();
+    super.dispose();
+  }
+}
 
 class ConnectionNotifier extends StateNotifier<EchoLinkConnectionState> {
   final ConnectionManager _connectionManager;
   bool _allowAutoConnect = false;
 
-  ConnectionNotifier(this._connectionManager) : super(EchoLinkConnectionState.disconnected) {
+  ConnectionNotifier(this._connectionManager)
+      : super(EchoLinkConnectionState.disconnected) {
     _init();
   }
 
@@ -59,8 +122,10 @@ class ConnectionNotifier extends StateNotifier<EchoLinkConnectionState> {
   Future<Result<void>> initialize() => _connectionManager.initialize();
   Future<Result<void>> startDiscovery() => _connectionManager.startDiscovery();
   Future<Result<void>> stopDiscovery() => _connectionManager.stopDiscovery();
-  Future<Result<void>> connect(Device device) => _connectionManager.connect(device);
-  Future<Result<void>> disconnect([String? deviceId]) => _connectionManager.disconnect(deviceId);
+  Future<Result<void>> connect(Device device) =>
+      _connectionManager.connect(device);
+  Future<Result<void>> disconnect([String? deviceId]) =>
+      _connectionManager.disconnect(deviceId);
 }
 
 class DiscoveredDevicesNotifier extends StateNotifier<List<Device>> {
@@ -74,7 +139,11 @@ class DiscoveredDevicesNotifier extends StateNotifier<List<Device>> {
     _connectionManager.discoveredDevices.listen((device) {
       final existingIndex = state.indexWhere((d) => d.id == device.id);
       if (existingIndex >= 0) {
-        state = [...state.sublist(0, existingIndex), device, ...state.sublist(existingIndex + 1)];
+        state = [
+          ...state.sublist(0, existingIndex),
+          device,
+          ...state.sublist(existingIndex + 1)
+        ];
       } else {
         state = [...state, device];
       }
