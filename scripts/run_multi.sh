@@ -1,5 +1,5 @@
 #!/bin/bash
-# EchoLink 运行所有设备 - 自动检测
+# EchoLink 多设备同时运行 - 用于网络发现测试
 
 set -e
 
@@ -18,93 +18,91 @@ export https_proxy=""
 cd "$PROJECT_DIR"
 
 echo "========================================"
-echo "  EchoLink - 运行所有设备"
+echo "  EchoLink - 多设备同时运行"
 echo "========================================"
 echo ""
 
-# 停止旧进程
-pkill -f echolink 2>/dev/null || true
-pkill -f Runner 2>/dev/null || true
-sleep 2
-
-echo "检测设备..."
+# 获取设备列表
 DEVICES=$(flutter devices 2>/dev/null)
 
-declare -a PIDS
-declare -a NAMES
+# 收集所有设备ID
+declare -a ALL_DEVICES
+declare -a ALL_NAMES
 
 # macOS
 if echo "$DEVICES" | grep -q "macos.*desktop"; then
-    echo "启动: macOS"
-    flutter run -d macos --no-pub &
-    PIDS+=($!)
-    NAMES+=("macOS")
-    sleep 2
+    ALL_DEVICES+=("macos")
+    ALL_NAMES+=("macOS")
 fi
 
 # iOS 真机
-IOS_REAL=$(echo "$DEVICES" | grep -E "iPhone.*mobile.*ios|iPad.*mobile.*ios" | grep -v "Simulator" | grep -v "simulator")
+IOS_REAL=$(echo "$DEVICES" | grep -E "iPhone.*mobile.*ios" | grep -v "Simulator" | grep -v "simulator")
 if [ -n "$IOS_REAL" ]; then
     IOS_ID=$(echo "$IOS_REAL" | awk '{print $3}' | tr -d '•')
     IOS_NAME=$(echo "$IOS_REAL" | awk -F'•' '{print $1}' | xargs)
-    echo "启动: $IOS_NAME (iOS真机)"
-    flutter run -d "$IOS_ID" --no-pub &
-    PIDS+=($!)
-    NAMES+=("$IOS_NAME")
-    sleep 2
+    ALL_DEVICES+=("$IOS_ID")
+    ALL_NAMES+=("$IOS_NAME")
 fi
 
 # iOS 模拟器
 IOS_SIM=$(echo "$DEVICES" | grep -E "simulator.*ios" | head -1)
 if [ -n "$IOS_SIM" ]; then
     IOS_SIM_ID=$(echo "$IOS_SIM" | awk '{print $3}' | tr -d '•')
-    echo "启动: iOS模拟器"
-    flutter run -d "$IOS_SIM_ID" --no-pub &
-    PIDS+=($!)
-    NAMES+=("iOS模拟器")
-    sleep 2
+    ALL_DEVICES+=("$IOS_SIM_ID")
+    ALL_NAMES+=("iOS模拟器")
 fi
 
 # Android 真机
 ANDROID_REAL=$(echo "$DEVICES" | grep -E "mobile.*android" | grep -v "emulator")
 if [ -n "$ANDROID_REAL" ]; then
     ANDROID_ID=$(echo "$ANDROID_REAL" | awk '{print $3}' | tr -d '•')
-    echo "启动: Android真机"
-    flutter run -d "$ANDROID_ID" --no-pub &
-    PIDS+=($!)
-    NAMES+=("Android真机")
-    sleep 2
+    ALL_DEVICES+=("$ANDROID_ID")
+    ALL_NAMES+=("Android真机")
 fi
 
 # Android 模拟器
 ANDROID_EMU=$(echo "$DEVICES" | grep -E "emulator.*android")
 if [ -n "$ANDROID_EMU" ]; then
     EMU_ID=$(echo "$ANDROID_EMU" | awk '{print $3}' | tr -d '•')
-    echo "启动: Android模拟器"
-    flutter run -d "$EMU_ID" --no-pub &
-    PIDS+=($!)
-    NAMES+=("Android模拟器")
+    ALL_DEVICES+=("$EMU_ID")
+    ALL_NAMES+=("Android模拟器")
 fi
 
-DEVICE_COUNT=${#PIDS[@]}
+DEVICE_COUNT=${#ALL_DEVICES[@]}
 
 if [ $DEVICE_COUNT -eq 0 ]; then
     echo "错误: 未检测到任何设备"
     exit 1
 fi
 
+echo "检测到 $DEVICE_COUNT 个设备:"
+for i in "${!ALL_DEVICES[@]}"; do
+    echo "  $((i+1)). ${ALL_NAMES[$i]} (${ALL_DEVICES[$i]})"
+done
 echo ""
-echo "========================================"
-echo "  已启动 $DEVICE_COUNT 个设备"
-echo "========================================"
 
-for i in "${!PIDS[@]}"; do
-    echo "  ${NAMES[$i]} (PID: ${PIDS[$i]})"
+# 先构建一次
+echo "正在构建..."
+flutter build macos --debug 2>/dev/null || true
+flutter build ios --debug --no-codesign 2>/dev/null || true
+
+echo ""
+echo "启动所有设备..."
+echo ""
+
+# 启动所有设备
+for i in "${!ALL_DEVICES[@]}"; do
+    DEVICE_ID="${ALL_DEVICES[$i]}"
+    DEVICE_NAME="${ALL_NAMES[$i]}"
+    
+    echo "启动: $DEVICE_NAME"
+    flutter run -d "$DEVICE_ID" --no-pub 2>&1 | sed "s/^/[$DEVICE_NAME] /" &
 done
 
 echo ""
+echo "所有设备已启动!"
 echo "等待设备互相发现..."
-echo "按 Ctrl+C 停止所有设备"
 echo ""
 
+# 等待所有进程
 wait

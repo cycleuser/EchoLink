@@ -1,55 +1,48 @@
 #!/bin/bash
+# EchoLink 运行 iOS 设备 - 自动检测
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 export PATH="$HOME/flutter/bin:$PATH"
-
-DEVICE_ID="${1:-}"
-
-echo "========================================"
-echo "  EchoLink - iOS Device Build & Run"
-echo "========================================"
-echo ""
+export PUB_HOSTED_URL=https://pub.flutter-io.cn
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
 
 cd "$PROJECT_DIR"
 
-echo "[1/4] Getting dependencies..."
-flutter pub get
-
+echo "========================================"
+echo "  EchoLink - iOS 设备"
+echo "========================================"
 echo ""
-echo "[2/4] Checking for connected iOS devices..."
-DEVICES=$(flutter devices 2>/dev/null | grep -i "iphone\|ipad" | grep -v "simulator" | awk '{print $3}')
 
-if [ -z "$DEVICES" ]; then
-    echo "ERROR: No iOS device connected"
-    echo "Please connect your iPhone/iPad and trust this computer"
+echo "检测 iOS 设备..."
+DEVICES=$(flutter devices 2>/dev/null)
+
+# 优先真机
+IOS_DEVICE=$(echo "$DEVICES" | grep -E "iPhone.*mobile.*ios|iPad.*mobile.*ios" | grep -v "Simulator" | grep -v "simulator" | head -1)
+
+if [ -z "$IOS_DEVICE" ]; then
+    # 尝试模拟器
+    IOS_DEVICE=$(echo "$DEVICES" | grep -E "iPhone.*simulator|iPad.*simulator" | head -1)
+    if [ -n "$IOS_DEVICE" ]; then
+        echo "未检测到真机，使用模拟器"
+    fi
+fi
+
+if [ -z "$IOS_DEVICE" ]; then
+    echo "错误: 未检测到 iOS 设备"
+    echo "请连接 iPhone/iPad 或启动模拟器"
     exit 1
 fi
 
-if [ -z "$DEVICE_ID" ]; then
-    echo "Available devices:"
-    flutter devices 2>/dev/null | grep -i "iphone\|ipad" | grep -v "simulator"
-    echo ""
-    echo "Usage: $0 <device_id>"
-    echo "Example: $0 00008110-0014784C3432401E"
-    exit 1
-fi
+DEVICE_ID=$(echo "$IOS_DEVICE" | awk '{print $3}' | tr -d '•')
+DEVICE_NAME=$(echo "$IOS_DEVICE" | awk -F'•' '{print $1}' | xargs)
 
-echo "Using device: $DEVICE_ID"
-
+echo "设备: $DEVICE_NAME"
+echo "ID: $DEVICE_ID"
 echo ""
-echo "[3/4] Building for iOS device..."
-flutter build ios --device-id "$DEVICE_ID" --release
+echo "正在启动..."
 
-echo ""
-echo "[4/4] Installing on device..."
-xcrun devicectl device install app --device "$DEVICE_ID" build/ios/iphoneos/Runner.app
-
-echo ""
-echo "Launching app..."
-xcrun devicectl device process launch --device "$DEVICE_ID" com.example.echolink
-
-echo ""
-echo "Done! App installed and launched on device."
+flutter run -d "$DEVICE_ID" --no-pub
