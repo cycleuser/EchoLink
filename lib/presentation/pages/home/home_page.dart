@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
@@ -17,11 +18,18 @@ class _HomePageState extends ConsumerState<HomePage> {
   bool _isInitialized = false;
   String _initError = '';
   bool _isDiscovering = false;
+  StreamSubscription<Message>? _messageSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeApp();
+  }
+
+  @override
+  void dispose() {
+    _messageSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _initializeApp() async {
@@ -44,6 +52,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
         if (_isInitialized) {
           _listenForConnectionRequests();
+          _listenForMessages();
         }
       }
     } catch (e) {
@@ -61,6 +70,118 @@ class _HomePageState extends ConsumerState<HomePage> {
         _showConnectionRequestDialog(device);
       }
     });
+  }
+
+  void _listenForMessages() {
+    _messageSubscription =
+        CrossPlatformNetworkService().messageReceived.listen((message) {
+      if (mounted) {
+        ref.read(messageStoreProvider.notifier).addMessage(message);
+        _showMessageNotification(message);
+      }
+    });
+  }
+
+  void _showMessageNotification(Message message) {
+    final overlay = Overlay.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: MediaQuery.of(context).padding.top + 60,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 300),
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                alignment: Alignment.topRight,
+                child: Opacity(
+                  opacity: value,
+                  child: child,
+                ),
+              );
+            },
+            child: GestureDetector(
+              onTap: () {
+                entry.remove();
+                final devices = CrossPlatformNetworkService().connectedDevices;
+                final device =
+                    devices.where((d) => d.id == message.senderId).firstOrNull;
+                if (device != null) {
+                  _openConversation(device);
+                }
+              },
+              child: Container(
+                width: 280,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.message,
+                        size: 20,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            message.senderName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            message.content.length > 30
+                                ? '${message.content.substring(0, 30)}...'
+                                : message.content,
+                            style: TextStyle(
+                              color: colorScheme.outline,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), entry.remove);
   }
 
   void _showConnectionRequestDialog(Device device) {
@@ -339,6 +460,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildContactTile(Device device, {required bool isConnected}) {
+    final unreadCount =
+        isConnected ? ref.watch(unreadCountProvider(device.id)) : 0;
+    final lastMessage = isConnected
+        ? ref.watch(deviceMessagesProvider(device.id)).lastOrNull
+        : null;
+
     return ListTile(
       leading: Stack(
         children: [
@@ -370,21 +497,63 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
         ],
       ),
-      title: Text(
-        device.name,
-        style: TextStyle(
-          fontWeight: isConnected ? FontWeight.bold : FontWeight.normal,
-        ),
+      title: Row(
+        children: [
+          Text(
+            device.name,
+            style: TextStyle(
+              fontWeight: isConnected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          if (unreadCount > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.error,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                unreadCount.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
       subtitle: Text(
-        isConnected ? '已连接 · ${device.ipAddress}' : device.ipAddress ?? '未知地址',
+        lastMessage != null
+            ? lastMessage.content.length > 20
+                ? '${lastMessage.content.substring(0, 20)}...'
+                : lastMessage.content
+            : (isConnected
+                ? '已连接 · ${device.ipAddress}'
+                : device.ipAddress ?? '未知地址'),
         style: Theme.of(context).textTheme.bodySmall,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
       trailing: isConnected
-          ? IconButton(
-              icon: const Icon(Icons.link_off),
-              onPressed: () => _disconnectDevice(device.id),
-              tooltip: '断开连接',
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (lastMessage != null)
+                  Text(
+                    _formatTime(lastMessage.timestamp),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.link_off),
+                  onPressed: () => _disconnectDevice(device.id),
+                  tooltip: '断开连接',
+                ),
+              ],
             )
           : TextButton(
               onPressed: () => _connectToDevice(device),
@@ -392,6 +561,16 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
       onTap: isConnected ? () => _openConversation(device) : null,
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    if (now.year == time.year &&
+        now.month == time.month &&
+        now.day == time.day) {
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+    return '${time.month}/${time.day}';
   }
 
   Widget _buildEmptyState() {

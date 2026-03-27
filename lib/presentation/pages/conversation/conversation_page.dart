@@ -40,13 +40,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
 
   @override
   Widget build(BuildContext context) {
-    final chatState = ref.watch(chatProvider);
-    final messages = chatState.messages
-        .where((m) =>
-            m.senderId == widget.device.id ||
-            m.receiverId == widget.device.id ||
-            m.receiverId == null)
-        .toList();
+    final messages = ref.watch(deviceMessagesProvider(widget.device.id));
 
     return Scaffold(
       appBar: AppBar(
