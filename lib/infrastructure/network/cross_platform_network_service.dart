@@ -498,14 +498,24 @@ class CrossPlatformNetworkService {
   }
 
   void _handleMessage(Map<String, dynamic> json) {
+    final senderId = json['senderId'] as String;
+
+    String? receiverId = json['receiverId'] as String?;
+    if (receiverId == null) {
+      receiverId = _deviceId;
+    }
+
     final message = Message(
       id: json['id'] as String,
-      senderId: json['senderId'] as String,
+      senderId: senderId,
       senderName: json['senderName'] as String,
       content: json['content'] as String,
       timestamp: DateTime.parse(json['timestamp'] as String),
       status: MessageStatus.received,
+      receiverId: receiverId,
     );
+
+    _log('Received message from ${message.senderName}: ${message.content}');
 
     if (!_messagesController.isClosed) {
       _messagesController.add(message);
@@ -834,6 +844,10 @@ class CrossPlatformNetworkService {
       return Failure('No connection');
     }
 
+    final targetDevice = deviceId != null && _connections.containsKey(deviceId)
+        ? _connections[deviceId]!.device
+        : null;
+
     final message = Message(
       id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
       senderId: _deviceId,
@@ -841,6 +855,7 @@ class CrossPlatformNetworkService {
       content: content,
       timestamp: DateTime.now(),
       status: MessageStatus.sending,
+      receiverId: targetDevice?.id,
     );
 
     final data = jsonEncode({
@@ -850,6 +865,7 @@ class CrossPlatformNetworkService {
           'senderName': message.senderName,
           'content': message.content,
           'timestamp': message.timestamp.toIso8601String(),
+          'receiverId': message.receiverId,
         }) +
         '\n';
 

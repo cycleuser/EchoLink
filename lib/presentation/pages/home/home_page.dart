@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
 import '../../../infrastructure/network/cross_platform_network_service.dart';
-import '../chat/chat_page.dart';
-import '../transfer/transfer_page.dart';
+import '../conversation/conversation_page.dart';
 import '../settings/settings_page.dart';
 
 class HomePage extends ConsumerStatefulWidget {
@@ -15,7 +14,6 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  int _currentIndex = 0;
   bool _isInitialized = false;
   String _initError = '';
   bool _isDiscovering = false;
@@ -28,8 +26,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _initializeApp() async {
     try {
-      final result = await ref.read(connectionStateProvider.notifier).initialize();
-      
+      final result =
+          await ref.read(connectionStateProvider.notifier).initialize();
+
       if (mounted) {
         setState(() {
           _isInitialized = result.isSuccess;
@@ -42,7 +41,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             );
           }
         });
-        
+
         if (_isInitialized) {
           _listenForConnectionRequests();
         }
@@ -69,7 +68,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Connection Request'),
+        title: const Text('连接请求'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -85,10 +84,10 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'wants to connect to your device',
+              '想要连接到您的设备',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
             ),
           ],
         ),
@@ -98,14 +97,14 @@ class _HomePageState extends ConsumerState<HomePage> {
               Navigator.pop(context);
               CrossPlatformNetworkService().rejectConnection();
             },
-            child: const Text('Reject'),
+            child: const Text('拒绝'),
           ),
           FilledButton(
             onPressed: () {
               Navigator.pop(context);
               CrossPlatformNetworkService().acceptConnection();
             },
-            child: const Text('Accept'),
+            child: const Text('接受'),
           ),
         ],
       ),
@@ -118,47 +117,42 @@ class _HomePageState extends ConsumerState<HomePage> {
       return _buildLoadingScreen();
     }
 
-    final connectionState = ref.watch(connectionStateProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider);
+    final connectedDevices = ref.watch(connectedDevicesNotifierProvider);
     final currentDevice = ref.watch(currentDeviceProvider);
-    final connectedDevice = ref.watch(connectedDeviceProvider);
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          _buildDevicesPage(connectionState, discoveredDevices, currentDevice, connectedDevice),
-          const ChatPage(),
-          const TransferPage(),
-          const SettingsPage(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.devices_outlined),
-            selectedIcon: Icon(Icons.devices),
-            label: 'Devices',
+      appBar: AppBar(
+        title: const Text('EchoLink'),
+        actions: [
+          IconButton(
+            icon: Icon(_isDiscovering ? Icons.stop : Icons.refresh),
+            onPressed: _isDiscovering ? _stopDiscovery : _startDiscovery,
+            tooltip: _isDiscovering ? '停止扫描' : '扫描设备',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Chat',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder),
-            label: 'Transfer',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsPage()),
+            ),
           ),
         ],
       ),
+      body: _buildContactsList(
+          discoveredDevices, connectedDevices, currentDevice),
+      floatingActionButton: _isDiscovering
+          ? FloatingActionButton.extended(
+              onPressed: _stopDiscovery,
+              icon: const Icon(Icons.stop),
+              label: const Text('停止扫描'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            )
+          : FloatingActionButton.extended(
+              onPressed: _startDiscovery,
+              icon: const Icon(Icons.search),
+              label: const Text('扫描设备'),
+            ),
     );
   }
 
@@ -175,15 +169,15 @@ class _HomePageState extends ConsumerState<HomePage> {
               Text(
                 'EchoLink',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Initializing network...',
+                '正在初始化网络...',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
               ),
               if (_initError.isNotEmpty) ...[
                 const SizedBox(height: 24),
@@ -205,7 +199,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 FilledButton.icon(
                   onPressed: _initializeApp,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+                  label: const Text('重试'),
                 ),
               ],
             ],
@@ -215,461 +209,282 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildDevicesPage(
-    EchoLinkConnectionState connectionState,
+  Widget _buildContactsList(
     List<Device> discoveredDevices,
+    List<Device> connectedDevices,
     Device? currentDevice,
-    Device? connectedDevice,
   ) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('EchoLink'),
-        actions: [
-          if (_isDiscovering)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: _startDiscovery,
-              tooltip: 'Scan for devices',
-            ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildThisDeviceCard(currentDevice),
-          const SizedBox(height: 16),
-          _buildConnectedDeviceCard(connectedDevice, connectionState),
-          const SizedBox(height: 16),
-          _buildDiscoveredDevicesSection(discoveredDevices, connectionState, connectedDevice),
-        ],
-      ),
-      floatingActionButton: _isDiscovering
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _startDiscovery,
-              icon: const Icon(Icons.search),
-              label: const Text('Scan'),
-            ),
-    );
-  }
+    final allContacts = <Device>[...connectedDevices];
 
-  Widget _buildThisDeviceCard(Device? device) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'This Device',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    _getPlatformIcon(device?.platform),
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        device?.name ?? 'Unknown',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        device != null ? '${device.ipAddress}:${device.port}' : 'Not available',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    for (final device in discoveredDevices) {
+      if (!allContacts.any((d) => d.id == device.id)) {
+        allContacts.add(device);
+      }
+    }
 
-  Widget _buildConnectedDeviceCard(Device? connectedDevice, EchoLinkConnectionState connectionState) {
-    final isConnected = connectionState == EchoLinkConnectionState.connected;
-    
-    return Card(
-      color: isConnected 
-          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  'Connected Device',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(connectionState).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(connectionState),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _getStatusText(connectionState),
-                        style: TextStyle(
-                          color: _getStatusColor(connectionState),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (isConnected && connectedDevice != null) ...[
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      _getPlatformIcon(connectedDevice.platform),
-                      color: Theme.of(context).colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          connectedDevice.name,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        Text(
-                          '${connectedDevice.ipAddress}:${connectedDevice.port}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.outline,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.link_off),
-                    onPressed: () => _disconnect(),
-                    tooltip: 'Disconnect',
-                  ),
-                ],
-              ),
-            ] else ...[
-              Row(
-                children: [
-                  Icon(
-                    Icons.link_off,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    connectionState == EchoLinkConnectionState.connecting
-                        ? 'Connecting...'
-                        : 'No device connected',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDiscoveredDevicesSection(
-    List<Device> devices,
-    EchoLinkConnectionState connectionState,
-    Device? connectedDevice,
-  ) {
-    final availableDevices = devices.where((d) => 
-      connectedDevice == null || d.id != connectedDevice.id
-    ).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
       children: [
-        Row(
-          children: [
-            Text(
-              'Nearby Devices',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const Spacer(),
-            if (availableDevices.isNotEmpty)
-              Text(
-                '${availableDevices.length} found',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (availableDevices.isEmpty) ...[
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.devices_other,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _isDiscovering ? 'Scanning...' : 'No devices found',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                    if (!_isDiscovering) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Tap "Scan" to search for nearby devices',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+        if (currentDevice != null) _buildMyDeviceSection(currentDevice),
+        if (connectedDevices.isNotEmpty) ...[
+          _buildSectionHeader(
+              '已连接 (${connectedDevices.length})', Icons.link, Colors.green),
+          ...connectedDevices
+              .map((d) => _buildContactTile(d, isConnected: true)),
+          const Divider(height: 32),
+        ],
+        if (_isDiscovering)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 12),
+                Text('正在扫描附近设备...'),
+              ],
             ),
           ),
-        ] else ...[
-          ...availableDevices.map((device) => _buildDeviceCard(
-            device,
-            connectionState == EchoLinkConnectionState.connecting,
-          )),
+        if (discoveredDevices
+            .where((d) => !connectedDevices.any((c) => c.id == d.id))
+            .isNotEmpty) ...[
+          _buildSectionHeader(
+              '附近设备', Icons.near_me, Theme.of(context).colorScheme.primary),
+          ...discoveredDevices
+              .where((d) => !connectedDevices.any((c) => c.id == d.id))
+              .map((d) => _buildContactTile(d, isConnected: false)),
         ],
+        if (allContacts.isEmpty && !_isDiscovering) _buildEmptyState(),
       ],
     );
   }
 
-  Widget _buildDeviceCard(Device device, bool isConnecting) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            _getPlatformIcon(device.platform),
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
+  Widget _buildMyDeviceSection(Device device) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
         ),
-        title: Text(device.name),
-        subtitle: Text(
-          '${device.ipAddress}:${device.port}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            fontFamily: 'monospace',
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              _getPlatformIcon(device.platform),
+              color: Theme.of(context).colorScheme.onPrimary,
+            ),
           ),
-        ),
-        trailing: isConnecting
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : ElevatedButton(
-                onPressed: () => _connectToDevice(device),
-                child: const Text('Connect'),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '我的设备',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  device.name,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${device.ipAddress}:${device.port}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontFamily: 'monospace',
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactTile(Device device, {required bool isConnected}) {
+    return ListTile(
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            backgroundColor: isConnected
+                ? Colors.green.withOpacity(0.2)
+                : Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Icon(
+              _getPlatformIcon(device.platform),
+              color: isConnected
+                  ? Colors.green
+                  : Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          if (isConnected)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Colors.green,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: Theme.of(context).colorScheme.surface, width: 2),
+                ),
               ),
+            ),
+        ],
+      ),
+      title: Text(
+        device.name,
+        style: TextStyle(
+          fontWeight: isConnected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      subtitle: Text(
+        isConnected ? '已连接 · ${device.ipAddress}' : device.ipAddress ?? '未知地址',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      trailing: isConnected
+          ? IconButton(
+              icon: const Icon(Icons.link_off),
+              onPressed: () => _disconnectDevice(device.id),
+              tooltip: '断开连接',
+            )
+          : TextButton(
+              onPressed: () => _connectToDevice(device),
+              child: const Text('连接'),
+            ),
+      onTap: isConnected ? () => _openConversation(device) : null,
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Padding(
+      padding: const EdgeInsets.all(48),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.people_outline,
+            size: 80,
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '暂无设备',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '点击下方按钮扫描附近设备',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+        ],
       ),
     );
   }
 
   Future<void> _startDiscovery() async {
-    if (_isDiscovering) return;
-    
     setState(() => _isDiscovering = true);
-    
     await ref.read(connectionStateProvider.notifier).startDiscovery();
-    
-    await Future.delayed(const Duration(seconds: 10));
-    
-    if (mounted) {
-      await ref.read(connectionStateProvider.notifier).stopDiscovery();
-      setState(() => _isDiscovering = false);
-    }
+  }
+
+  Future<void> _stopDiscovery() async {
+    await ref.read(connectionStateProvider.notifier).stopDiscovery();
+    setState(() => _isDiscovering = false);
   }
 
   Future<void> _connectToDevice(Device device) async {
-    final result = await ref.read(connectionStateProvider.notifier).connect(device);
-    
+    _showToast('正在连接 ${device.name}...');
+    final result =
+        await ref.read(connectionStateProvider.notifier).connect(device);
+
     if (!mounted) return;
-    
+
     result.when(
       success: (_) {
-        _showToast('Connected to ${device.name}', isSuccess: true);
+        _showToast('已连接到 ${device.name}', isSuccess: true);
       },
       failure: (message, {exception}) {
-        _showToast('Failed: $message', isSuccess: false);
+        _showToast('连接失败: $message', isSuccess: false);
       },
     );
   }
 
-  void _showToast(String message, {required bool isSuccess}) {
-    final overlay = Overlay.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
-    
-    final entry = OverlayEntry(
-      builder: (context) => Positioned(
-        top: MediaQuery.of(context).padding.top + 60,
-        right: 16,
-        child: Material(
-          color: Colors.transparent,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 200),
-            builder: (context, value, child) {
-              return Transform.scale(
-                scale: value,
-                alignment: Alignment.topRight,
-                child: Opacity(
-                  opacity: value,
-                  child: child,
-                ),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: isSuccess ? Colors.green : colorScheme.error,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isSuccess ? Icons.check_circle : Icons.error,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+  void _disconnectDevice(String deviceId) {
+    ref.read(connectionStateProvider.notifier).disconnect(deviceId);
+    _showToast('已断开连接');
+  }
+
+  void _openConversation(Device device) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ConversationPage(device: device),
       ),
     );
-
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 2), entry.remove);
   }
 
-  Future<void> _disconnect() async {
-    await ref.read(connectionStateProvider.notifier).disconnect();
-  }
-
-  String _getStatusText(EchoLinkConnectionState state) {
-    switch (state) {
-      case EchoLinkConnectionState.connected:
-        return 'Connected';
-      case EchoLinkConnectionState.connecting:
-        return 'Connecting';
-      case EchoLinkConnectionState.discovering:
-        return 'Scanning';
-      case EchoLinkConnectionState.disconnected:
-        return 'Disconnected';
-      case EchoLinkConnectionState.error:
-        return 'Error';
-    }
-  }
-
-  Color _getStatusColor(EchoLinkConnectionState state) {
-    switch (state) {
-      case EchoLinkConnectionState.connected:
-        return Colors.green;
-      case EchoLinkConnectionState.connecting:
-      case EchoLinkConnectionState.discovering:
-        return Colors.orange;
-      case EchoLinkConnectionState.disconnected:
-        return Theme.of(context).colorScheme.outline;
-      case EchoLinkConnectionState.error:
-        return Theme.of(context).colorScheme.error;
-    }
+  void _showToast(String message, {bool isSuccess = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isSuccess ? Icons.check_circle : Icons.error,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor:
+            isSuccess ? Colors.green : Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
   }
 
   IconData _getPlatformIcon(DevicePlatform? platform) {
