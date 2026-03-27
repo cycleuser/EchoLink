@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
 import '../../../infrastructure/network/cross_platform_network_service.dart';
+import '../../widgets/toast_helper.dart';
 
 class ConversationPage extends ConsumerStatefulWidget {
   final Device device;
@@ -458,14 +459,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 
   void _showToast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+    ToastHelper.info(context, message);
   }
 
   String _formatTime(DateTime time) {

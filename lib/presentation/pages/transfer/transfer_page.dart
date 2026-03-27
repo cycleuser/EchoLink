@@ -144,21 +144,11 @@ class TransferPage extends ConsumerWidget {
       await ref.read(transferProvider.notifier).sendTestFile();
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Test file sent!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        ToastHelper.success(context, 'Test file sent!');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send file: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        ToastHelper.error(context, 'Failed to send file: $e');
       }
     }
   }

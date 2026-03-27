@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
 import '../../../infrastructure/network/cross_platform_network_service.dart';
+import '../../widgets/toast_helper.dart';
 import '../conversation/conversation_page.dart';
 import '../settings/settings_page.dart';
 
@@ -645,24 +646,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _showToast(String message, {bool isSuccess = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isSuccess ? Icons.check_circle : Icons.error,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor:
-            isSuccess ? Colors.green : Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+    ToastHelper.show(
+      context,
+      message: message,
+      type: isSuccess ? ToastType.success : ToastType.error,
     );
   }
 
