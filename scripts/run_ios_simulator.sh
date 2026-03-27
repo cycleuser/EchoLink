@@ -6,6 +6,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 export PATH="$HOME/flutter/bin:$PATH"
 
+# Flutter 中国镜像
+export PUB_HOSTED_URL=https://pub.flutter-io.cn
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+
 echo "========================================"
 echo "  EchoLink - iOS Simulator Build & Run"
 echo "========================================"

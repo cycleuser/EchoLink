@@ -9,6 +9,10 @@ export JAVA_HOME="$HOME/jdk/zulu17.54.21-ca-jdk17.0.13-macosx_aarch64/zulu-17.jd
 export ANDROID_HOME="$HOME/android-sdk"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
+# Flutter 中国镜像
+export PUB_HOSTED_URL=https://pub.flutter-io.cn
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+
 echo "========================================"
 echo "  EchoLink - macOS Build & Run"
 echo "========================================"

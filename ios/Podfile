@@ -4,6 +4,9 @@ platform :ios, '17.0'
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# 使用清华镜像加速
+source 'https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git'
+
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,

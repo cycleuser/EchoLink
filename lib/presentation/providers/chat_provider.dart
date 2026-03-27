@@ -124,10 +124,6 @@ final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(CrossPlatformNetworkService());
 });
 
-final connectedDevicesProvider = Provider<List<Device>>((ref) {
-  return CrossPlatformNetworkService().connectedDevices;
-});
-
 final selectedDeviceProvider = Provider<Device?>((ref) {
   final selectedId = ref.watch(chatProvider).selectedDeviceId;
   if (selectedId == null) return null;

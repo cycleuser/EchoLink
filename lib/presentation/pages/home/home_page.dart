@@ -121,7 +121,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final connectionState = ref.watch(connectionStateProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider);
     final currentDevice = ref.watch(currentDeviceProvider);
-    final connectedDevice = ref.watch(connectedDeviceProvider).valueOrNull;
+    final connectedDevice = ref.watch(connectedDeviceProvider);
 
     return Scaffold(
       body: IndexedStack(

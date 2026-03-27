@@ -63,6 +63,12 @@ class CrossPlatformNetworkService {
   Stream<String> get debugLog => _debugLogController.stream;
   Stream<Device> get connectionRequest => _connectionRequestController.stream;
 
+  final _connectionStateController = StreamController<EchoLinkConnectionState>.broadcast();
+  Stream<EchoLinkConnectionState> get connectionState => _connectionStateController.stream;
+
+  Socket? _pendingConnectionSocket;
+  Device? _pendingConnectionDevice;
+
   bool get isInitialized => _isInitialized;
   bool get isDiscovering => _isDiscovering;
   List<Device> get connectedDevices => _connections.values.map((c) => c.device).toList();
@@ -81,6 +87,42 @@ class CrossPlatformNetworkService {
   void setAllowAutoConnect(bool value) {
     _allowAutoConnect = value;
     _log('Auto-connect ${value ? "enabled" : "disabled"}');
+  }
+
+  void acceptConnection() {
+    if (_pendingConnectionSocket != null && _pendingConnectionDevice != null) {
+      final socket = _pendingConnectionSocket!;
+      final device = _pendingConnectionDevice!;
+      
+      final connection = PeerConnection(
+        device: device,
+        socket: socket,
+        localPort: _serverPort,
+      );
+      connection.lastHeartbeat = DateTime.now();
+
+      _connections[device.id] = connection;
+      _startHeartbeat(connection);
+
+      _sendHandshakeResponse(socket, {});
+      
+      if (!_connectionStateController.isClosed) {
+        _connectionStateController.add(EchoLinkConnectionState.connected);
+      }
+      
+      _log('Accepted connection: ${device.name}');
+    }
+    _pendingConnectionSocket = null;
+    _pendingConnectionDevice = null;
+  }
+
+  void rejectConnection() {
+    if (_pendingConnectionSocket != null) {
+      _pendingConnectionSocket!.destroy();
+      _log('Rejected connection request');
+    }
+    _pendingConnectionSocket = null;
+    _pendingConnectionDevice = null;
   }
 
   void _log(String message) {
@@ -290,23 +332,37 @@ class CrossPlatformNetworkService {
       connectionType: ConnectionType.wifiDirect,
     );
 
-    final connection = PeerConnection(
-      device: device,
-      socket: socket,
-      localPort: _serverPort,
-    );
-    connection.lastHeartbeat = DateTime.now();
+    if (_allowAutoConnect) {
+      final connection = PeerConnection(
+        device: device,
+        socket: socket,
+        localPort: _serverPort,
+      );
+      connection.lastHeartbeat = DateTime.now();
 
-    _connections[senderId] = connection;
-    _startHeartbeat(connection);
+      _connections[senderId] = connection;
+      _startHeartbeat(connection);
 
-    _log('Connected: ${device.name} (${device.platform})');
-    
-    if (!_devicesController.isClosed) {
-      _devicesController.add(device.copyWith(status: DeviceStatus.connected));
+      _log('Auto-accepted: ${device.name} (${device.platform})');
+      
+      if (!_devicesController.isClosed) {
+        _devicesController.add(device.copyWith(status: DeviceStatus.connected));
+      }
+      if (!_connectionStateController.isClosed) {
+        _connectionStateController.add(EchoLinkConnectionState.connected);
+      }
+
+      _sendHandshakeResponse(socket, json);
+    } else {
+      _pendingConnectionSocket = socket;
+      _pendingConnectionDevice = device;
+      
+      if (!_connectionRequestController.isClosed) {
+        _connectionRequestController.add(device);
+      }
+      
+      _log('Pending connection request: ${device.name}');
     }
-
-    _sendHandshakeResponse(socket, json);
   }
 
   void _sendHandshakeResponse(Socket socket, Map<String, dynamic> request) {
@@ -415,6 +471,12 @@ class CrossPlatformNetworkService {
     if (connection != null) {
       connection.dispose();
       _log('Disconnected: ${connection.device.name}');
+      
+      if (!_connectionStateController.isClosed) {
+        if (_connections.isEmpty) {
+          _connectionStateController.add(EchoLinkConnectionState.disconnected);
+        }
+      }
     }
   }
 
@@ -627,6 +689,10 @@ class CrossPlatformNetworkService {
       _connections[device.id] = connection;
       _startHeartbeat(connection);
 
+      if (!_connectionStateController.isClosed) {
+        _connectionStateController.add(EchoLinkConnectionState.connected);
+      }
+
       _log('Connected: ${device.name}');
       return const Success(null);
     } catch (e) {
@@ -740,6 +806,7 @@ class CrossPlatformNetworkService {
     await _messagesController.close();
     await _debugLogController.close();
     await _connectionRequestController.close();
+    await _connectionStateController.close();
 
     _isInitialized = false;
     _isDiscovering = false;

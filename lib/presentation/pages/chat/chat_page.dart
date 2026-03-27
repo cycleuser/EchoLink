@@ -27,8 +27,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final connectionState = ref.watch(connectionStateProvider);
     final chatState = ref.watch(chatProvider);
-    final connectedDeviceAsync = ref.watch(connectedDeviceProvider);
-    final connectedDevice = connectedDeviceAsync.valueOrNull;
+    final connectedDevice = ref.watch(connectedDeviceProvider);
 
     return Scaffold(
       appBar: AppBar(
