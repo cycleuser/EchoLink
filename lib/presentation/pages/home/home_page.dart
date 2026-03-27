@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
 import '../../../infrastructure/network/cross_platform_network_service.dart';
+import '../../../core/utils/logger.dart';
 import '../../widgets/toast_helper.dart';
 import '../conversation/conversation_page.dart';
 import '../settings/settings_page.dart';
@@ -336,6 +337,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     List<Device> connectedDevices,
     Device? currentDevice,
   ) {
+    AppLogger.info(
+        'Building contacts list: ${connectedDevices.length} connected, ${discoveredDevices.length} discovered');
+
     final allContacts = <Device>[...connectedDevices];
 
     for (final device in discoveredDevices) {
@@ -349,7 +353,18 @@ class _HomePageState extends ConsumerState<HomePage> {
         if (currentDevice != null) _buildMyDeviceSection(currentDevice),
         if (connectedDevices.isNotEmpty) ...[
           _buildSectionHeader(
-              '已连接 (${connectedDevices.length})', Icons.link, Colors.green),
+              '已连接 (${connectedDevices.length} 台设备)', Icons.link, Colors.green),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '点击设备进入聊天，可同时保持多台设备连接',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           ...connectedDevices
               .map((d) => _buildContactTile(d, isConnected: true)),
           const Divider(height: 32),

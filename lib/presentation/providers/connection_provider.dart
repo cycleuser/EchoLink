@@ -62,7 +62,7 @@ class ConnectedDevicesNotifier extends StateNotifier<List<Device>> {
   void _startPolling() {
     _timer?.cancel();
     _updateDevices();
-    _timer = Timer.periodic(const Duration(milliseconds: 300), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       _updateDevices();
     });
   }
@@ -71,10 +71,13 @@ class ConnectedDevicesNotifier extends StateNotifier<List<Device>> {
     try {
       final service = CrossPlatformNetworkService();
       final connected = service.connectedDevices;
-      final discovered = service.discoveredDevices;
 
       if (_listsDifferent(state, connected)) {
-        AppLogger.info('Connected devices changed: ${connected.length}');
+        AppLogger.info(
+            'Connected devices updated: ${connected.length} devices');
+        for (final d in connected) {
+          AppLogger.info('  - ${d.name} (${d.id})');
+        }
         state = connected;
       }
     } catch (e) {
