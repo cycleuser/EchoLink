@@ -9,14 +9,13 @@ abstract class ConnectionManager {
   Stream<Device> get discoveredDevices;
   Stream<EchoLinkConnectionState> get connectionState;
   Stream<Message> get incomingMessages;
-  Stream<FileTransfer> get fileTransfers;
   Stream<String> get debugLog;
 
   Future<Result<void>> initialize();
   Future<Result<void>> startDiscovery();
   Future<Result<void>> stopDiscovery();
   Future<Result<void>> connect(Device device);
-  Future<Result<void>> disconnect();
+  Future<Result<void>> disconnect([String? deviceId]);
   Future<Result<void>> sendMessage(Message message);
   Future<Result<void>> sendFile(FileTransfer transfer);
   Future<Device> getCurrentDevice();
@@ -36,9 +35,6 @@ class ConnectionManagerImpl implements ConnectionManager {
 
   @override
   Stream<Message> get incomingMessages => _networkService.messageReceived;
-
-  @override
-  Stream<FileTransfer> get fileTransfers => Stream.empty();
 
   @override
   Stream<String> get debugLog => _networkService.debugLog;
@@ -66,16 +62,19 @@ class ConnectionManagerImpl implements ConnectionManager {
   Future<Result<void>> connect(Device device) => _networkService.connect(device);
 
   @override
-  Future<Result<void>> disconnect() => _networkService.disconnect();
+  Future<Result<void>> disconnect([String? deviceId]) => _networkService.disconnect(deviceId);
 
   @override
   Future<Result<void>> sendMessage(Message message) async {
-    return _networkService.sendMessage(message.content);
+    return _networkService.sendMessage(message.content, message.receiverId);
   }
 
   @override
   Future<Result<void>> sendFile(FileTransfer transfer) async {
-    return Failure('File transfer not implemented yet');
+    return _networkService.sendMessage(
+      '[FILE] ${transfer.fileName} (${transfer.fileSize} bytes)',
+      transfer.receiverId,
+    );
   }
 
   @override
@@ -91,39 +90,15 @@ class ConnectionManagerImpl implements ConnectionManager {
   Future<String> _generateDeviceName() async {
     String platform = 'Device';
     
-    if (await _isAndroid()) {
+    if (Platform.isAndroid) {
       platform = 'Android';
-    } else if (await _isIOS()) {
+    } else if (Platform.isIOS) {
       platform = 'iOS';
-    } else if (await _isMacOS()) {
+    } else if (Platform.isMacOS) {
       platform = 'macOS';
     }
 
     final suffix = DateTime.now().millisecondsSinceEpoch % 10000;
     return 'EchoLink-$platform-$suffix';
-  }
-
-  Future<bool> _isAndroid() async {
-    try {
-      return Platform.isAndroid;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> _isIOS() async {
-    try {
-      return Platform.isIOS;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> _isMacOS() async {
-    try {
-      return Platform.isMacOS;
-    } catch (_) {
-      return false;
-    }
   }
 }

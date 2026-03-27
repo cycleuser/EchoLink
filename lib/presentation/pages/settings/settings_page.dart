@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
+import '../../../infrastructure/network/cross_platform_network_service.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -11,32 +12,13 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  final _deviceNameController = TextEditingController();
-  bool _autoDiscovery = true;
   bool _notificationsEnabled = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
-  }
-
-  @override
-  void dispose() {
-    _deviceNameController.dispose();
-    super.dispose();
-  }
-
-  void _loadSettings() {
-    final device = ref.read(currentDeviceProvider);
-    _deviceNameController.text = device?.name ?? 'EchoLink Device';
-  }
 
   @override
   Widget build(BuildContext context) {
     final currentDevice = ref.watch(currentDeviceProvider);
     final themeMode = ref.watch(themeModeProvider);
-    final autoConnectEnabled = ref.watch(autoConnectEnabledProvider);
+    final allowAutoConnect = ref.watch(allowAutoConnectProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -46,7 +28,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         children: [
           _buildDeviceSection(currentDevice),
           const SizedBox(height: 8),
-          _buildNetworkSection(autoConnectEnabled),
+          _buildConnectionSection(allowAutoConnect),
           const SizedBox(height: 8),
           _buildAppearanceSection(themeMode),
           const SizedBox(height: 8),
@@ -95,24 +77,43 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildNetworkSection(bool autoConnectEnabled) {
+  Widget _buildConnectionSection(bool allowAutoConnect) {
     return _buildSection(
-      title: 'Network',
-      icon: Icons.wifi,
+      title: 'Connection',
+      icon: Icons.link,
       children: [
         SwitchListTile(
-          title: const Text('Auto Discovery'),
-          subtitle: const Text('Automatically scan for nearby devices on startup'),
-          value: _autoDiscovery,
-          onChanged: (value) => setState(() => _autoDiscovery = value),
-        ),
-        SwitchListTile(
-          title: const Text('Auto Connect'),
-          subtitle: const Text('Connect to the first discovered device automatically'),
-          value: autoConnectEnabled,
+          title: const Text('Allow Auto Connect'),
+          subtitle: Text(
+            allowAutoConnect 
+                ? 'Others can connect without approval'
+                : 'Others need your approval to connect',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: allowAutoConnect 
+                  ? Colors.green 
+                  : Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          value: allowAutoConnect,
           onChanged: (value) {
-            ref.read(autoConnectEnabledProvider.notifier).state = value;
+            ref.read(allowAutoConnectProvider.notifier).state = value;
+            CrossPlatformNetworkService().setAllowAutoConnect(value);
           },
+        ),
+        ListTile(
+          leading: Icon(
+            allowAutoConnect ? Icons.lock_open : Icons.lock,
+            color: allowAutoConnect ? Colors.green : Colors.orange,
+          ),
+          title: Text(
+            allowAutoConnect ? 'Open Mode' : 'Protected Mode',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          subtitle: Text(
+            allowAutoConnect
+                ? 'Any nearby device can connect automatically'
+                : 'You will be asked to approve connection requests',
+          ),
         ),
         SwitchListTile(
           title: const Text('Notifications'),

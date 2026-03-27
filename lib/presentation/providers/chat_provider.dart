@@ -1,31 +1,40 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
-import '../../infrastructure/network/connection_manager.dart';
 import '../../infrastructure/network/cross_platform_network_service.dart';
-import 'connection_provider.dart';
 
 class ChatState {
   final List<Message> messages;
   final bool isLoading;
   final String? error;
+  final String? selectedDeviceId;
 
   const ChatState({
     this.messages = const [],
     this.isLoading = false,
     this.error,
+    this.selectedDeviceId,
   });
 
   ChatState copyWith({
     List<Message>? messages,
     bool? isLoading,
     String? error,
+    String? selectedDeviceId,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      selectedDeviceId: selectedDeviceId ?? this.selectedDeviceId,
     );
+  }
+
+  List<Message> get messagesForSelectedDevice {
+    if (selectedDeviceId == null) return messages;
+    return messages.where((m) => 
+      m.senderId == selectedDeviceId || m.receiverId == selectedDeviceId
+    ).toList();
   }
 }
 
@@ -40,25 +49,31 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _networkService.messageReceived.listen(_onMessageReceived);
   }
 
-  Future<Result<void>> sendTextMessage(String content) async {
+  void selectDevice(String? deviceId) {
+    state = state.copyWith(selectedDeviceId: deviceId);
+  }
+
+  Future<Result<void>> sendTextMessage(String content, [String? deviceId]) async {
     if (content.isEmpty) {
       return Failure('Message cannot be empty');
     }
 
+    final currentDevice = _networkService.getCurrentDevice();
     final message = Message(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
-      senderId: _networkService.getCurrentDevice().id,
-      senderName: _networkService.getCurrentDevice().name,
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}_${currentDevice.id.hashCode}',
+      senderId: currentDevice.id,
+      senderName: currentDevice.name,
       content: content,
       timestamp: DateTime.now(),
       status: MessageStatus.sending,
+      receiverId: deviceId,
     );
 
-    state = state.copyWith(
-      messages: [...state.messages, message],
-    );
+    if (!state.messages.any((m) => m.id == message.id)) {
+      state = state.copyWith(messages: [...state.messages, message]);
+    }
 
-    final result = await _networkService.sendMessage(content);
+    final result = await _networkService.sendMessage(content, deviceId);
 
     result.when(
       success: (_) {
@@ -77,30 +92,23 @@ class ChatNotifier extends StateNotifier<ChatState> {
           }
           return m;
         }).toList();
-        state = state.copyWith(
-          messages: updatedMessages,
-          error: msg,
-        );
+        state = state.copyWith(messages: updatedMessages, error: msg);
       },
     );
 
     return result;
   }
 
-  void sendHelloMessage() {
-    final deviceName = _networkService.getCurrentDevice().name;
-    sendTextMessage('Hello from $deviceName!');
-  }
-
-  void sendDeviceInfo() {
-    final device = _networkService.getCurrentDevice();
-    sendTextMessage('Device: ${device.name}, Platform: ${device.platform.name}, Address: ${device.ipAddress}:${device.port}');
-  }
-
   void _onMessageReceived(Message message) {
-    state = state.copyWith(
-      messages: [...state.messages, message],
+    final exists = state.messages.any((m) => 
+      m.id == message.id || 
+      (m.content == message.content && 
+       m.timestamp.difference(message.timestamp).inSeconds.abs() < 2)
     );
+    
+    if (!exists) {
+      state = state.copyWith(messages: [...state.messages, message]);
+    }
   }
 
   void clear() {
@@ -116,6 +124,14 @@ final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(CrossPlatformNetworkService());
 });
 
-final connectedDeviceProvider = StateProvider<Device?>((ref) {
-  return CrossPlatformNetworkService().currentConnectedDevice;
+final connectedDevicesProvider = Provider<List<Device>>((ref) {
+  return CrossPlatformNetworkService().connectedDevices;
+});
+
+final selectedDeviceProvider = Provider<Device?>((ref) {
+  final selectedId = ref.watch(chatProvider).selectedDeviceId;
+  if (selectedId == null) return null;
+  
+  final devices = CrossPlatformNetworkService().connectedDevices;
+  return devices.firstWhere((d) => d.id == selectedId, orElse: () => devices.first);
 });
