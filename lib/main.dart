@@ -8,13 +8,26 @@ void main() {
   runApp(const ProviderScope(child: EchoLinkApp()));
 }
 
-class EchoLinkApp extends ConsumerWidget {
+class EchoLinkApp extends ConsumerStatefulWidget {
   const EchoLinkApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EchoLinkApp> createState() => _EchoLinkAppState();
+}
+
+class _EchoLinkAppState extends ConsumerState<EchoLinkApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(transferProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
-    
+
     return MaterialApp(
       title: 'EchoLink',
       theme: AppTheme.light,

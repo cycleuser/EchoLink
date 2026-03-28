@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
 import '../../core/utils/logger.dart';
@@ -995,6 +996,11 @@ class CrossPlatformNetworkService {
     final meta = _fileMetas.remove(transferId);
 
     if (buffer != null && meta != null) {
+      _saveReceivedFileDirectly(
+        meta['fileName'] as String,
+        buffer,
+      );
+
       final transfer = FileTransfer(
         id: transferId,
         fileName: meta['fileName'] as String,
@@ -1016,6 +1022,70 @@ class CrossPlatformNetworkService {
         _fileTransferController.add(transfer);
       }
       _log('File received: ${meta['fileName']}');
+    }
+  }
+
+  Future<void> _saveReceivedFileDirectly(
+      String fileName, List<int> data) async {
+    try {
+      String savePath;
+      final cleanFileName = fileName.replaceAll('/', '_').replaceAll('\\', '_');
+
+      if (Platform.isAndroid) {
+        Directory? targetDir;
+
+        try {
+          targetDir = Directory('/storage/emulated/0/Download/EchoLink');
+          if (!await targetDir.exists()) {
+            await targetDir.create(recursive: true);
+          }
+          savePath = '${targetDir.path}/$cleanFileName';
+        } catch (e) {
+          _log('Cannot write to Download folder, using app storage: $e');
+          final docsDir = await getExternalStorageDirectory();
+          if (docsDir != null) {
+            targetDir = Directory('${docsDir.path}/Downloads');
+            if (!await targetDir.exists()) {
+              await targetDir.create(recursive: true);
+            }
+            savePath = '${targetDir.path}/$cleanFileName';
+          } else {
+            final appDir = await getApplicationDocumentsDirectory();
+            targetDir = Directory('${appDir.path}/Downloads');
+            if (!await targetDir.exists()) {
+              await targetDir.create(recursive: true);
+            }
+            savePath = '${targetDir.path}/$cleanFileName';
+          }
+        }
+      } else if (Platform.isIOS) {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final dir = Directory('${docsDir.path}/Downloads');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        savePath = '${dir.path}/$cleanFileName';
+      } else if (Platform.isMacOS) {
+        final home = Platform.environment['HOME'] ?? '';
+        final dir = Directory('$home/Downloads/EchoLink');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        savePath = '${dir.path}/$cleanFileName';
+      } else {
+        final docsDir = await getApplicationDocumentsDirectory();
+        savePath = '${docsDir.path}/EchoLink/$cleanFileName';
+        final dir = Directory('${docsDir.path}/EchoLink');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      }
+
+      final file = File(savePath);
+      await file.writeAsBytes(data);
+      _log('File saved directly: $savePath');
+    } catch (e) {
+      _log('Failed to save file directly: $e');
     }
   }
 
