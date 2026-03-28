@@ -42,6 +42,7 @@ class CrossPlatformNetworkService {
   final _messagesController = StreamController<Message>.broadcast();
   final _debugLogController = StreamController<String>.broadcast();
   final _connectionRequestController = StreamController<Device>.broadcast();
+  final _fileTransferController = StreamController<FileTransfer>.broadcast();
 
   RawDatagramSocket? _discoverySocket;
   RawDatagramSocket? _multicastSocket;
@@ -65,6 +66,7 @@ class CrossPlatformNetworkService {
   Stream<Message> get messageReceived => _messagesController.stream;
   Stream<String> get debugLog => _debugLogController.stream;
   Stream<Device> get connectionRequest => _connectionRequestController.stream;
+  Stream<FileTransfer> get fileTransfer => _fileTransferController.stream;
 
   final _connectionStateController =
       StreamController<EchoLinkConnectionState>.broadcast();
@@ -402,6 +404,11 @@ class CrossPlatformNetworkService {
           _handleDeviceAnnounce(json);
           _sendHandshakeResponse(socket, json);
         }
+        break;
+      case 'file_start':
+      case 'file_chunk':
+      case 'file_end':
+        _handleFilePacket(json);
         break;
     }
   }
@@ -882,6 +889,136 @@ class CrossPlatformNetworkService {
     return const Success(null);
   }
 
+  Future<Result<void>> sendFile({
+    required String filePath,
+    required String fileName,
+    required int fileSize,
+    required String? deviceId,
+    required void Function(double progress) onProgress,
+  }) async {
+    final target = deviceId != null ? _connections[deviceId] : null;
+    if (target == null) {
+      return Failure('No connection');
+    }
+
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        return Failure('File not found');
+      }
+
+      final transferId = 'file_${DateTime.now().millisecondsSinceEpoch}';
+
+      final meta = jsonEncode({
+            'type': 'file_start',
+            'transferId': transferId,
+            'fileName': fileName,
+            'fileSize': fileSize,
+            'senderId': _deviceId,
+            'senderName': _deviceName,
+          }) +
+          '\n';
+      target.socket.write(meta);
+
+      final stream = file.openRead();
+      int sent = 0;
+
+      await for (final chunk in stream) {
+        final chunkData = base64Encode(chunk);
+        final packet = jsonEncode({
+              'type': 'file_chunk',
+              'transferId': transferId,
+              'data': chunkData,
+            }) +
+            '\n';
+        target.socket.write(packet);
+
+        sent += chunk.length;
+        onProgress(sent / fileSize);
+      }
+
+      final end = jsonEncode({
+            'type': 'file_end',
+            'transferId': transferId,
+          }) +
+          '\n';
+      target.socket.write(end);
+
+      _log('File sent: $fileName');
+      return const Success(null);
+    } catch (e) {
+      _log('Send file failed: $e');
+      return Failure(e.toString());
+    }
+  }
+
+  void _handleFilePacket(Map<String, dynamic> json) {
+    final type = json['type'] as String;
+
+    switch (type) {
+      case 'file_start':
+        _handleFileStart(json);
+        break;
+      case 'file_chunk':
+        _handleFileChunk(json);
+        break;
+      case 'file_end':
+        _handleFileEnd(json);
+        break;
+    }
+  }
+
+  final Map<String, List<int>> _fileBuffers = {};
+  final Map<String, Map<String, dynamic>> _fileMetas = {};
+
+  void _handleFileStart(Map<String, dynamic> json) {
+    final transferId = json['transferId'] as String;
+    _fileBuffers[transferId] = [];
+    _fileMetas[transferId] = {
+      'fileName': json['fileName'],
+      'fileSize': json['fileSize'],
+      'senderId': json['senderId'],
+      'senderName': json['senderName'],
+    };
+    _log('Receiving file: ${json['fileName']}');
+  }
+
+  void _handleFileChunk(Map<String, dynamic> json) {
+    final transferId = json['transferId'] as String;
+    final data = json['data'] as String;
+    _fileBuffers[transferId]?.addAll(base64Decode(data));
+  }
+
+  void _handleFileEnd(Map<String, dynamic> json) {
+    final transferId = json['transferId'] as String;
+    final buffer = _fileBuffers.remove(transferId);
+    final meta = _fileMetas.remove(transferId);
+
+    if (buffer != null && meta != null) {
+      final transfer = FileTransfer(
+        id: transferId,
+        fileName: meta['fileName'] as String,
+        fileSize: meta['fileSize'] as int,
+        filePath: '',
+        senderId: meta['senderId'] as String,
+        senderName: meta['senderName'] as String,
+        receiverId: _deviceId,
+        direction: TransferDirection.receive,
+        status: TransferStatus.completed,
+        progress: 1.0,
+        bytesTransferred: buffer.length,
+        startTime: DateTime.now(),
+        endTime: DateTime.now(),
+        metadata: {'data': buffer},
+      );
+
+      if (!_fileTransferController.isClosed) {
+        _fileTransferController.add(transfer);
+      }
+      _log('File received: ${meta['fileName']}');
+    }
+  }
+
   Device getCurrentDevice() {
     return Device(
       id: _deviceId,
@@ -942,6 +1079,7 @@ class CrossPlatformNetworkService {
     await _debugLogController.close();
     await _connectionRequestController.close();
     await _connectionStateController.close();
+    await _fileTransferController.close();
 
     _isInitialized = false;
     _isDiscovering = false;

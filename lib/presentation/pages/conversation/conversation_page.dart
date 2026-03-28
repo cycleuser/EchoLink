@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../providers/providers.dart';
 import '../../../domain/models/models.dart';
-import '../../../infrastructure/network/cross_platform_network_service.dart';
 import '../../widgets/toast_helper.dart';
 
 class ConversationPage extends ConsumerStatefulWidget {
@@ -279,7 +279,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
   }
 
   Widget _buildFilesTab() {
-    final transfers = <FileTransfer>[];
+    final transfers = ref.watch(transferProvider).transfers;
 
     return Column(
       children: [
@@ -289,12 +289,37 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _pickAndSendFile,
-                  icon: const Icon(Icons.upload_file),
-                  label: const Text('发送文件'),
+                  onPressed: _pickSingleFile,
+                  icon: const Icon(Icons.insert_drive_file),
+                  label: const Text('单个文件'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _pickMultipleFiles,
+                  icon: const Icon(Icons.library_books),
+                  label: const Text('多个文件'),
                 ),
               ),
             ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _pickDirectory,
+              icon: const Icon(Icons.folder),
+              label: const Text('选择目录'),
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                    Theme.of(context).colorScheme.secondaryContainer,
+                foregroundColor:
+                    Theme.of(context).colorScheme.onSecondaryContainer,
+              ),
+            ),
           ),
         ),
         const Divider(),
@@ -424,8 +449,155 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
     }
   }
 
-  void _pickAndSendFile() {
-    _showToast('文件选择功能开发中...');
+  void _pickSingleFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (file.path == null) {
+        if (mounted) ToastHelper.error(context, '无法访问文件');
+        return;
+      }
+
+      final fileSize = await File(file.path!).length();
+      if (mounted) ToastHelper.info(context, '正在发送: ${file.name}');
+
+      final sendResult = await ref.read(transferProvider.notifier).sendFile(
+            filePath: file.path!,
+            fileName: file.name,
+            fileSize: fileSize,
+            deviceId: widget.device.id,
+          );
+
+      if (!mounted) return;
+      sendResult.when(
+        success: (_) => ToastHelper.success(context, '文件已发送: ${file.name}'),
+        failure: (msg, {exception}) => ToastHelper.error(context, '发送失败: $msg'),
+      );
+    } catch (e) {
+      if (mounted) ToastHelper.error(context, '发送失败: $e');
+    }
+  }
+
+  void _pickMultipleFiles() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: true,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final validFiles = result.files.where((f) => f.path != null).toList();
+      if (validFiles.isEmpty) {
+        if (mounted) ToastHelper.error(context, '无法访问所选文件');
+        return;
+      }
+
+      if (mounted) {
+        ToastHelper.info(context, '正在发送 ${validFiles.length} 个文件...');
+      }
+
+      int successCount = 0;
+      int failCount = 0;
+
+      for (final file in validFiles) {
+        final fileSize = await File(file.path!).length();
+        final sendResult = await ref.read(transferProvider.notifier).sendFile(
+              filePath: file.path!,
+              fileName: file.name,
+              fileSize: fileSize,
+              deviceId: widget.device.id,
+            );
+
+        sendResult.when(
+          success: (_) => successCount++,
+          failure: (msg, {exception}) => failCount++,
+        );
+      }
+
+      if (!mounted) return;
+      if (successCount == validFiles.length) {
+        ToastHelper.success(context, '全部 $successCount 个文件已发送');
+      } else if (successCount > 0) {
+        ToastHelper.info(context, '$successCount 个发送成功, $failCount 个失败');
+      } else {
+        ToastHelper.error(context, '所有文件发送失败');
+      }
+    } catch (e) {
+      if (mounted) ToastHelper.error(context, '发送失败: $e');
+    }
+  }
+
+  void _pickDirectory() async {
+    try {
+      final directoryPath = await FilePicker.platform.getDirectoryPath();
+      if (directoryPath == null) return;
+
+      final directory = Directory(directoryPath);
+      if (!await directory.exists()) {
+        if (mounted) ToastHelper.error(context, '目录不存在');
+        return;
+      }
+
+      final files = <File>[];
+      await _collectFilesRecursively(directory, files);
+
+      if (files.isEmpty) {
+        if (mounted) ToastHelper.info(context, '目录中没有文件');
+        return;
+      }
+
+      if (mounted) {
+        ToastHelper.info(context, '正在发送 ${files.length} 个文件...');
+      }
+
+      int successCount = 0;
+      int failCount = 0;
+
+      for (final file in files) {
+        final relativePath = file.path.substring(directoryPath.length + 1);
+        final fileName = relativePath.replaceAll(Platform.pathSeparator, '/');
+        final fileSize = await file.length();
+
+        final sendResult = await ref.read(transferProvider.notifier).sendFile(
+              filePath: file.path,
+              fileName: fileName,
+              fileSize: fileSize,
+              deviceId: widget.device.id,
+            );
+
+        sendResult.when(
+          success: (_) => successCount++,
+          failure: (msg, {exception}) => failCount++,
+        );
+      }
+
+      if (!mounted) return;
+      if (successCount == files.length) {
+        ToastHelper.success(context, '全部 $successCount 个文件已发送');
+      } else if (successCount > 0) {
+        ToastHelper.info(context, '$successCount 个发送成功, $failCount 个失败');
+      } else {
+        ToastHelper.error(context, '所有文件发送失败');
+      }
+    } catch (e) {
+      if (mounted) ToastHelper.error(context, '发送失败: $e');
+    }
+  }
+
+  Future<void> _collectFilesRecursively(Directory dir, List<File> files) async {
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is File) {
+        files.add(entity);
+      } else if (entity is Directory) {
+        await _collectFilesRecursively(entity, files);
+      }
+    }
   }
 
   void _showDeviceOptions() {
@@ -456,10 +628,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         ),
       ),
     );
-  }
-
-  void _showToast(String message) {
-    ToastHelper.info(context, message);
   }
 
   String _formatTime(DateTime time) {

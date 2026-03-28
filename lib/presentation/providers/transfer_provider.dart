@@ -1,7 +1,14 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../domain/models/models.dart';
 import '../../core/result.dart';
 import '../../infrastructure/network/cross_platform_network_service.dart';
+import '../../core/utils/logger.dart';
+
+final networkServiceProvider = Provider<CrossPlatformNetworkService>((ref) {
+  return CrossPlatformNetworkService();
+});
 
 class TransferState {
   final List<FileTransfer> transfers;
@@ -36,42 +43,114 @@ class TransferState {
 class TransferNotifier extends StateNotifier<TransferState> {
   final CrossPlatformNetworkService _networkService;
 
-  TransferNotifier(this._networkService) : super(const TransferState());
+  TransferNotifier(this._networkService) : super(const TransferState()) {
+    _listenForFileTransfers();
+  }
 
-  Future<Result<void>> sendTestFile() async {
-    final device = _networkService.getCurrentDevice();
-    final testContent = '''
-EchoLink Test File
-==================
-Generated at: ${DateTime.now()}
-Device: ${device.name}
-Platform: ${device.platform.name}
+  void _listenForFileTransfers() {
+    _networkService.fileTransfer.listen((transfer) {
+      _saveReceivedFile(transfer);
+      state = state.copyWith(
+        transfers: [...state.transfers, transfer],
+      );
+    });
+  }
 
-This is a test file sent via EchoLink cross-platform communication.
-''';
+  Future<void> _saveReceivedFile(FileTransfer transfer) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final echoLinkDir = Directory('${directory.path}/EchoLink');
+      if (!await echoLinkDir.exists()) {
+        await echoLinkDir.create(recursive: true);
+      }
 
-    final result = await _networkService.sendMessage('[FILE] test_file.txt:\n$testContent');
+      final fileName =
+          transfer.fileName.replaceAll('/', '_').replaceAll('\\', '_');
+      final file = File('${echoLinkDir.path}/$fileName');
+      final data = transfer.metadata['data'] as List<int>?;
+      if (data != null) {
+        await file.writeAsBytes(data);
+        AppLogger.info('File saved: ${file.path}');
+      }
+    } catch (e) {
+      AppLogger.error('Failed to save file', e);
+    }
+  }
 
+  Future<Result<void>> sendFile({
+    required String filePath,
+    required String fileName,
+    required int fileSize,
+    required String deviceId,
+  }) async {
     final transfer = FileTransfer(
-      id: 'transfer_${DateTime.now().millisecondsSinceEpoch}',
-      fileName: 'test_file.txt',
-      fileSize: testContent.length,
-      filePath: '',
-      senderId: device.id,
-      senderName: device.name,
-      receiverId: '',
+      id: 'file_${DateTime.now().millisecondsSinceEpoch}',
+      fileName: fileName,
+      fileSize: fileSize,
+      filePath: filePath,
+      senderId: _networkService.getCurrentDevice().id,
+      senderName: _networkService.getCurrentDevice().name,
+      receiverId: deviceId,
       direction: TransferDirection.send,
-      status: TransferStatus.completed,
-      progress: 1.0,
+      status: TransferStatus.inProgress,
       startTime: DateTime.now(),
-      endTime: DateTime.now(),
     );
 
     state = state.copyWith(
       transfers: [...state.transfers, transfer],
     );
 
-    return result;
+    try {
+      final result = await _networkService.sendFile(
+        filePath: filePath,
+        fileName: fileName,
+        fileSize: fileSize,
+        deviceId: deviceId,
+        onProgress: (progress) {
+          final updatedTransfers = state.transfers.map((t) {
+            if (t.id == transfer.id) {
+              return t.copyWith(
+                progress: progress,
+                bytesTransferred: (fileSize * progress).toInt(),
+              );
+            }
+            return t;
+          }).toList();
+          state = state.copyWith(transfers: updatedTransfers);
+        },
+      );
+
+      final updatedTransfers = state.transfers.map((t) {
+        if (t.id == transfer.id) {
+          return t.copyWith(
+            status: result.isSuccess
+                ? TransferStatus.completed
+                : TransferStatus.failed,
+            endTime: DateTime.now(),
+            progress: result.isSuccess ? 1.0 : t.progress,
+          );
+        }
+        return t;
+      }).toList();
+
+      state = state.copyWith(transfers: updatedTransfers);
+
+      return result;
+    } catch (e) {
+      final updatedTransfers = state.transfers.map((t) {
+        if (t.id == transfer.id) {
+          return t.copyWith(
+            status: TransferStatus.failed,
+            errorMessage: e.toString(),
+            endTime: DateTime.now(),
+          );
+        }
+        return t;
+      }).toList();
+
+      state = state.copyWith(transfers: updatedTransfers);
+      return Failure(e.toString());
+    }
   }
 
   void clear() {
@@ -79,6 +158,7 @@ This is a test file sent via EchoLink cross-platform communication.
   }
 }
 
-final transferProvider = StateNotifierProvider<TransferNotifier, TransferState>((ref) {
-  return TransferNotifier(CrossPlatformNetworkService());
+final transferProvider =
+    StateNotifierProvider<TransferNotifier, TransferState>((ref) {
+  return TransferNotifier(ref.watch(networkServiceProvider));
 });
