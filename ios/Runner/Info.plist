@@ -9,6 +9,18 @@
 		<string>_echolink._tcp</string>
 		<string>_echolink._udp</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>EchoLink needs access to your photo library to select and send photos and videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>EchoLink needs permission to save received photos to your photo library.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>EchoLink needs camera access to take photos for sharing.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>EchoLink needs microphone access to record videos for sharing.</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

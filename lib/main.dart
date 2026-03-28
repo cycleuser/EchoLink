@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'presentation/pages/home/home_page.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/providers/providers.dart';
+import 'infrastructure/network/cross_platform_network_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await inboxManager.initialize();
   runApp(const ProviderScope(child: EchoLinkApp()));
 }
 

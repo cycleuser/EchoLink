@@ -6,6 +6,85 @@ import '../../domain/models/models.dart';
 import '../../core/result.dart';
 import '../../core/utils/logger.dart';
 
+class InboxManager {
+  static final InboxManager _instance = InboxManager._internal();
+  factory InboxManager() => _instance;
+  InboxManager._internal();
+
+  Directory? _inboxDir;
+  bool _initialized = false;
+
+  Directory? get inboxDir => _inboxDir;
+  bool get isInitialized => _initialized;
+
+  Future<void> initialize() async {
+    if (_initialized) return;
+
+    try {
+      Directory baseDir;
+
+      if (Platform.isIOS) {
+        baseDir = await getLibraryDirectory();
+      } else if (Platform.isAndroid) {
+        final external = await getExternalStorageDirectory();
+        if (external != null) {
+          baseDir = external;
+        } else {
+          baseDir = await getApplicationDocumentsDirectory();
+        }
+      } else if (Platform.isMacOS) {
+        final home = Platform.environment['HOME'] ?? '';
+        baseDir = Directory('$home/.echolink');
+      } else {
+        baseDir = await getApplicationDocumentsDirectory();
+      }
+
+      _inboxDir = Directory('${baseDir.path}/Inbox');
+      if (!await _inboxDir!.exists()) {
+        await _inboxDir!.create(recursive: true);
+      }
+
+      _initialized = true;
+      AppLogger.info('Inbox initialized: ${_inboxDir!.path}');
+    } catch (e) {
+      AppLogger.error('Failed to initialize inbox', e);
+    }
+  }
+
+  Future<String> saveFile(String fileName, List<int> data) async {
+    if (!_initialized || _inboxDir == null) {
+      await initialize();
+    }
+
+    if (_inboxDir == null) {
+      throw Exception('Inbox not initialized');
+    }
+
+    final cleanFileName = fileName.replaceAll('/', '_').replaceAll('\\', '_');
+    String targetPath = '${_inboxDir!.path}/$cleanFileName';
+
+    int counter = 1;
+    while (await File(targetPath).exists()) {
+      final parts = cleanFileName.split('.');
+      if (parts.length > 1) {
+        final ext = parts.last;
+        final name = parts.sublist(0, parts.length - 1).join('.');
+        targetPath = '${_inboxDir!.path}/${name}_$counter.$ext';
+      } else {
+        targetPath = '${_inboxDir!.path}/${cleanFileName}_$counter';
+      }
+      counter++;
+    }
+
+    final file = File(targetPath);
+    await file.writeAsBytes(data);
+    AppLogger.info('File saved: $targetPath');
+    return targetPath;
+  }
+}
+
+final inboxManager = InboxManager();
+
 class PeerConnection {
   final Device device;
   final Socket socket;
@@ -1028,64 +1107,23 @@ class CrossPlatformNetworkService {
   Future<void> _saveReceivedFileDirectly(
       String fileName, List<int> data) async {
     try {
-      String savePath;
-      final cleanFileName = fileName.replaceAll('/', '_').replaceAll('\\', '_');
-
-      if (Platform.isAndroid) {
-        Directory? targetDir;
-
-        try {
-          targetDir = Directory('/storage/emulated/0/Download/EchoLink');
-          if (!await targetDir.exists()) {
-            await targetDir.create(recursive: true);
-          }
-          savePath = '${targetDir.path}/$cleanFileName';
-        } catch (e) {
-          _log('Cannot write to Download folder, using app storage: $e');
-          final docsDir = await getExternalStorageDirectory();
-          if (docsDir != null) {
-            targetDir = Directory('${docsDir.path}/Downloads');
-            if (!await targetDir.exists()) {
-              await targetDir.create(recursive: true);
-            }
-            savePath = '${targetDir.path}/$cleanFileName';
-          } else {
-            final appDir = await getApplicationDocumentsDirectory();
-            targetDir = Directory('${appDir.path}/Downloads');
-            if (!await targetDir.exists()) {
-              await targetDir.create(recursive: true);
-            }
-            savePath = '${targetDir.path}/$cleanFileName';
-          }
-        }
-      } else if (Platform.isIOS) {
-        final docsDir = await getApplicationDocumentsDirectory();
-        final dir = Directory('${docsDir.path}/Downloads');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        savePath = '${dir.path}/$cleanFileName';
-      } else if (Platform.isMacOS) {
-        final home = Platform.environment['HOME'] ?? '';
-        final dir = Directory('$home/Downloads/EchoLink');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        savePath = '${dir.path}/$cleanFileName';
-      } else {
-        final docsDir = await getApplicationDocumentsDirectory();
-        savePath = '${docsDir.path}/EchoLink/$cleanFileName';
-        final dir = Directory('${docsDir.path}/EchoLink');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-      }
-
-      final file = File(savePath);
-      await file.writeAsBytes(data);
-      _log('File saved directly: $savePath');
+      await inboxManager.saveFile(fileName, data);
     } catch (e) {
       _log('Failed to save file directly: $e');
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final dir = Directory('${docsDir.path}/Inbox');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        final cleanFileName =
+            fileName.replaceAll('/', '_').replaceAll('\\', '_');
+        final file = File('${dir.path}/$cleanFileName');
+        await file.writeAsBytes(data);
+        _log('File saved to fallback: ${file.path}');
+      } catch (e2) {
+        _log('Fallback save also failed: $e2');
+      }
     }
   }
 

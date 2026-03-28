@@ -291,35 +291,40 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
                 child: FilledButton.icon(
                   onPressed: _pickSingleFile,
                   icon: const Icon(Icons.insert_drive_file),
-                  label: const Text('单个文件'),
+                  label: const Text('文件'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _pickMultipleFiles,
-                  icon: const Icon(Icons.library_books),
-                  label: const Text('多个文件'),
+                  onPressed: _pickFromGallery,
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('相册'),
                 ),
               ),
             ],
           ),
         ),
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _pickDirectory,
-              icon: const Icon(Icons.folder),
-              label: const Text('选择目录'),
-              style: FilledButton.styleFrom(
-                backgroundColor:
-                    Theme.of(context).colorScheme.secondaryContainer,
-                foregroundColor:
-                    Theme.of(context).colorScheme.onSecondaryContainer,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickMultipleFiles,
+                  icon: const Icon(Icons.library_books),
+                  label: const Text('多选'),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickDirectory,
+                  icon: const Icon(Icons.folder),
+                  label: const Text('目录'),
+                ),
+              ),
+            ],
           ),
         ),
         const Divider(),
@@ -478,6 +483,56 @@ class _ConversationPageState extends ConsumerState<ConversationPage>
         success: (_) => ToastHelper.success(context, '文件已发送: ${file.name}'),
         failure: (msg, {exception}) => ToastHelper.error(context, '发送失败: $msg'),
       );
+    } catch (e) {
+      if (mounted) ToastHelper.error(context, '发送失败: $e');
+    }
+  }
+
+  void _pickFromGallery() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.media,
+        allowMultiple: true,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final validFiles = result.files.where((f) => f.path != null).toList();
+      if (validFiles.isEmpty) {
+        if (mounted) ToastHelper.error(context, '无法访问所选媒体');
+        return;
+      }
+
+      if (mounted) {
+        ToastHelper.info(context, '正在发送 ${validFiles.length} 个媒体文件...');
+      }
+
+      int successCount = 0;
+      int failCount = 0;
+
+      for (final file in validFiles) {
+        final fileSize = await File(file.path!).length();
+        final sendResult = await ref.read(transferProvider.notifier).sendFile(
+              filePath: file.path!,
+              fileName: file.name,
+              fileSize: fileSize,
+              deviceId: widget.device.id,
+            );
+
+        sendResult.when(
+          success: (_) => successCount++,
+          failure: (msg, {exception}) => failCount++,
+        );
+      }
+
+      if (!mounted) return;
+      if (successCount == validFiles.length) {
+        ToastHelper.success(context, '全部 $successCount 个媒体已发送');
+      } else if (successCount > 0) {
+        ToastHelper.info(context, '$successCount 个发送成功, $failCount 个失败');
+      } else {
+        ToastHelper.error(context, '所有媒体发送失败');
+      }
     } catch (e) {
       if (mounted) ToastHelper.error(context, '发送失败: $e');
     }
